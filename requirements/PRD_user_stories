@@ -1,0 +1,606 @@
+Itemize-It (II) — Product Requirements Document (PRD)
+
+Version: v1.4.1 (Refined MVP)
+Target: Solopreneurs, contractors, and small businesses (0–50 employees)
+Platforms: Mobile app (core workflow), Web app (reporting/export + upload + review)
+
+1) Overview
+
+Itemize-It converts receipts into item-level, tax-ready records. Users capture receipts via email forwarding / direct email capture / phone photo / upload. An AI pipeline extracts line items, suggests Personal vs Business and expense categories, and presents swipeable item cards for fast confirmation. Business items flow into reporting/export. Items can also be tracked through an ownership lifecycle (returns, warranty, registration, resale) leveraging the Recevity backend.
+
+2) Goals, non-goals, principles
+2.1 Goals (MVP)
+
+Support multiple capture methods that reliably produce item cards.
+
+Itemize receipts into line items with confidence scoring and safe fallbacks.
+
+Let users classify Personal vs Business and confirm categories quickly (bulk actions included).
+
+Store originals + audit trail for tax readiness.
+
+Provide web reporting and exports suitable for accountants/bookkeeping.
+
+Enable lifecycle tracking basics (returns + warranty).
+
+Capture payment source per line item and make it one-tap to change without interrupting swipe flow.
+
+Provide manual correction tools (especially Split Line Item) with mobile auto-math.
+
+2.2 Non-goals (MVP)
+
+Full accounting/double-entry bookkeeping.
+
+Corporate approvals/spend policies/cards.
+
+Full bank-feed reconciliation (Phase 2+).
+
+Payroll, invoicing, inventory.
+
+2.3 Principles
+
+Capture → classify → done.
+
+AI suggests; user confirms.
+
+No forced popups during swipe flow.
+
+Mobile-first ergonomics (auto-enhance, auto-math, one-tap toggles).
+
+Always keep original receipt artifacts.
+
+3) Users and core use cases
+3.1 Personas
+
+Solo contractor
+
+Service solopreneur
+
+Small business owner/admin
+
+3.2 Primary use cases
+
+Capture receipt → item cards → swipe classify → saved ledger → export.
+
+Track return/warranty deadlines per item.
+
+Track reimbursable business purchases (business item paid personally).
+
+4) Scope
+4.1 Capture channels (MVP)
+
+Email forwarding to unique II inbox
+
+Direct email capture (vendors email II inbox)
+
+Phone photo capture / gallery select (auto-enhanced + quality indicator + offline queue)
+
+Upload (mobile + web; PDFs/images; combine option)
+
+4.2 Web app focus (MVP)
+
+Reporting dashboards
+
+Export tools (CSV + accountant pack)
+
+Receipt upload
+
+Needs Review queue + manual correction tools (including Split)
+
+5) Requirements
+5.1 Receipt capture and ingestion
+5.1.1 Email forwarding + direct email capture (with simple alias)
+
+User story: I forward or receive receipts into my II inbox using a simple, easy-to-remember address.
+
+Requirements
+
+Simple alias generation (user-facing)
+
+System assigns a short, memorable alias during onboarding.
+
+Suggested format: [initials][2–3 digits]@itemz.com (e.g., JH22@itemz.com)
+
+User can regenerate (rate-limited) if conflict or preference.
+
+Non-guessable internal routing (security)
+
+The simple alias must route to an internal, non-guessable address/token mapping (not a direct mailbox that can be brute-forced).
+
+Support alias rotation (if spam/abuse).
+
+Parse: headers, body (HTML/text), attachments (PDF/image).
+
+De-duplication:
+
+Composite fingerprint (merchant/date/total/attachment hash + message-id heuristics).
+
+If duplicate suspected: mark Possible Duplicate (do not auto-merge in MVP).
+
+Possible Duplicate UX (MVP-safe)
+
+Show banner on receipt: “Possible duplicate detected”
+
+Actions: Keep both / Discard new / Replace existing
+
+Default: Keep both (safest), but prominently shown so user can resolve.
+
+Onboarding
+
+Display the short alias prominently with Copy button.
+
+“Add to Contacts” becomes secondary (optional).
+
+Constraint note: iOS/Android require user confirmation for adding contacts; Copy is the reliable fallback.
+
+Success criteria
+
+Email parsing success ≥ 90% overall.
+
+Possible-duplicate detection precision ≥ 95% (low false positives).
+
+Alias abuse mitigation: inbound spam to an alias does not degrade processing for legitimate users (rate limiting + filtering).
+
+5.1.2 Phone photo capture / gallery select (mobile) + offline
+
+User story: I capture a receipt image—even without signal—and it processes automatically when online.
+
+Flow (required)
+
+User captures image or selects from gallery.
+
+Offline queue:
+
+If offline, save locally to an encrypted queue with “Pending Upload”.
+
+Auto-upload begins when connectivity returns.
+
+Auto-enhancement runs automatically:
+
+perspective/crop (best effort), contrast/brightness normalization, denoise/sharpen (best effort)
+
+Quality indicator shown on preview: Good / Fair / Poor
+
+Show Auto-enhanced badge if enhancement applied.
+
+Edit button for manual adjustments (crop/rotate/retake).
+
+Upload proceeds using the enhanced image by default.
+
+Offline reliability requirements
+
+Local queue items are encrypted at rest.
+
+Retries use backoff; user can “Retry now” or “Delete from queue”.
+
+If upload fails repeatedly, show a non-blocking alert with next retry time.
+
+Success criteria
+
+0% data loss for photos taken while offline (no silent drops).
+
+p90 capture→Ready/Needs Review ≤ 5 minutes measured from upload start.
+
+5.1.3 Upload (mobile + web)
+
+Supported: PDF, JPG, PNG, HEIC (mobile).
+
+Multi-file upload defaults to separate receipts; optional combine.
+
+Clear validation errors.
+
+Success criteria
+
+Upload failure rate due to platform/system issues < 1%.
+
+5.2 Parsing, OCR, and itemization
+5.2.1 Extraction outputs
+
+Per receipt:
+
+merchant (raw + normalized)
+
+date/time (best effort)
+
+currency
+
+subtotal/tax/total (where present)
+
+line items: description (raw + normalized), qty/unit price (if present), line total, discounts (if detected)
+
+confidence: receipt-level + item-level
+
+Needs Review reason codes
+
+Confidence thresholds (single source of truth)
+
+TOTAL_CONF_HIGH = 0.90
+
+LINEITEM_CONF_MIN = 0.70
+
+Fallback logic (Critical)
+
+If Total is High Confidence (≥ 0.90) AND line items are Low Confidence (< 0.70) or missing:
+
+Create a single line item: “Receipt Total” with full amount
+
+Flag: Needs Review: Check Line Items
+
+User may proceed using the single item (not blocked)
+
+5.2.2 Needs Review triggers (MVP)
+
+Totals missing or don’t reconcile beyond tolerance
+
+Low confidence itemization
+
+Ambiguous merchant/date
+
+No line items detected (fallback allowed but flagged)
+
+Suspected merged rows
+
+5.2.3 Manual correction: Split Line Item (High)
+
+Web (baseline): split into 2+ rows; edit description/amount; reconcile totals; save.
+
+Mobile (auto-math required)
+
+Default 2 splits; allow add more.
+
+Auto-math:
+
+Original amount A
+
+If user enters x in one row, remaining auto-fills to A - x
+
+With 3+ splits, one row is “Auto Remaining” = A - sum(locked rows)
+
+Validation: prevent sum > A; enforce cent rounding tolerance.
+
+Save replaces original row; updates reconciliation; clears merged-row flag if reconciled.
+
+5.3 AI classification and categorization
+
+AI suggests Personal vs Business + confidence (user authoritative).
+
+Business category suggestion from fixed set (editable).
+
+Rules learning: merchant/keyword → category (simple manager).
+
+5.4 Mobile swipe UX (core experience)
+
+Card shows item, amount, merchant/date, category chip, and one-tap payment source icon (for Business items).
+
+Actions: swipe Personal/Business, Undo.
+
+Bulk: Mark all Business, Mark all Personal, Multi-select apply category, Mark remaining as Personal.
+
+5.5 Ledger and system of record
+5.5.1 Item ledger fields (MVP)
+
+user_id, business_profile_id
+
+receipt_id + original artifact links
+
+merchant raw/normalized, purchase_date
+
+item description raw/normalized
+
+amount (line total), currency
+
+classification: personal/business
+
+business_category (if business)
+
+payment_source: PERSONAL_FUNDS | BUSINESS_FUNDS | UNKNOWN
+
+notes
+
+confidence metadata + estimated flags
+
+timestamps (created/updated)
+
+Payment source defaults
+
+Business item defaults to BUSINESS_FUNDS
+
+One-tap toggle on card changes to PERSONAL_FUNDS (reimbursable) without leaving swipe flow
+
+Tax fields (added)
+
+tax_amount (line level)
+
+tax_calculation_method: EXTRACTED | PRORATED | MANUAL
+
+Tax logic (MVP)
+
+If receipt lists tax per line item: set line tax_amount and method = EXTRACTED.
+
+Else if receipt lists subtotal + total tax:
+
+ratio = total_tax / subtotal
+
+line tax_amount = line_amount * ratio
+
+method = PRORATED
+
+If user edits tax: method = MANUAL
+
+5.5.2 Receipt record fields (MVP)
+
+merchant/date/totals, source channel, original files
+
+status: Processing / Ready / Needs Review / Completed
+
+needs_review reason codes
+
+Requirement
+
+100% of saved items retain link to original receipt artifacts.
+
+5.6 Lifecycle tracking (Recevity backend)
+
+MVP: return window + warranty tracking + reminders (optional recommended).
+
+5.7 Web reporting and export
+
+Reports by category and merchant; tax summary (estimated vs exact labeled).
+
+Filters include payment_source and needs_review.
+
+Exports:
+
+CSV (items)
+
+Accountant Pack (CSV + receipts organized by month, stable IDs)
+
+Include payment_source, tax_amount, and tax_calculation_method
+
+6) Notifications (MVP)
+
+Receipt processed and ready
+
+Needs Review reminder (optional)
+
+Return/warranty reminders
+
+7) Security, privacy, compliance
+
+Encryption in transit and at rest
+
+Tenant isolation
+
+Redact sensitive payment details if detected (no full card numbers stored)
+
+Account deletion (added)
+
+“Delete My Account” in settings.
+
+Prompt user to export Accountant Pack before deletion.
+
+Immediate deactivation on confirmation (login blocked).
+
+Hard delete within 30 days:
+
+user profile, receipts, images, derived data, exports generated/stored by system
+
+Backups: deletions may persist in backups until backup rotation completes (state backup retention window in policy, even if not shown in-app).
+
+Success criteria
+
+100% of deletion requests complete within 30 days.
+
+User receives confirmation that deletion has been scheduled and later completed (email or in-app if still accessible).
+
+8) Performance and reliability
+
+Background processing retries + dead-letter queue
+
+UI responsive for 10k+ items per business profile (target)
+
+9) Analytics and instrumentation
+
+Track:
+
+capture mix, processing times, completion times
+
+needs_review rates + reasons
+
+split usage/time
+
+payment_source toggle rate
+
+tax method distribution (EXTRACTED/PRORATED/MANUAL)
+
+export usage, lifecycle usage, retention
+
+10) MVP success criteria (launch gates)
+
+(Unchanged from v1.3, plus the following are now measurable)
+
+Possible-duplicate precision ≥ 95%
+
+Offline photo queue: 0% data loss
+
+Deletion: 100% completed within 30 days
+
+Updated User Stories (MVP) — Full Set
+A) Capture & Ingestion
+
+US-01 — Email forwarding via simple alias
+
+As a solopreneur, I want to forward receipts to a short email like JH22@itemz.com so I can remember it.
+Acceptance criteria
+
+Alias assigned during signup; user can regenerate (rate-limited).
+
+Receipt enters Processing within 10 seconds of arrival.
+
+Receipt becomes Ready/Needs Review within 5 minutes (p90).
+
+Possible duplicates are flagged (not auto-merged).
+
+US-02 — Direct email capture (vendor sends to II)
+
+As a contractor, I want vendors to email receipts directly to my II alias so I don’t forward every receipt.
+Acceptance criteria
+
+Direct emails ingest like forwarded receipts.
+
+Link-only gated receipts are flagged Needs Review with upload prompt.
+
+US-03 — Photo capture (offline support + auto-enhance + quality)
+
+As a contractor in a basement/remote site, I want to snap a receipt photo while offline so I don’t forget later.
+Acceptance criteria
+
+Camera capture works without data connection.
+
+Image is queued locally (encrypted) with Pending Upload.
+
+Upload auto-starts when connection restores.
+
+Auto-enhancement runs automatically.
+
+Quality indicator shows Good/Fair/Poor; Auto-enhanced badge appears if applied.
+
+Edit supports crop/rotate/retake; upload uses enhanced image by default.
+
+US-04 — Upload (mobile/web)
+
+As a small business owner, I want to upload PDF/image receipts so downloads and scans process the same way.
+Acceptance criteria
+
+Supports PDF/JPG/PNG/HEIC (mobile).
+
+Multi-file upload defaults to separate receipts; combine option exists.
+
+Clear errors for unsupported/corrupt/too large files.
+
+US-05 — Onboarding: Copy alias + optional Add to Contacts
+
+As a new user, I want to save my II email address easily so receipt forwarding is effortless.
+Acceptance criteria
+
+Copy button is prominent and reliable.
+
+Add to Contacts is offered but requires user confirmation; Copy remains fallback.
+
+B) Itemization, Review, and Corrections
+
+US-06 — AI itemization with “Total Only” fallback
+
+As a user, I want the app to fall back to the receipt total if it can’t read line items so I’m not blocked.
+Acceptance criteria
+
+If line items confidence ≥ 0.70: show extracted line items.
+
+If line items confidence < 0.70 AND total confidence ≥ 0.90: create “Receipt Total” item.
+
+Receipt flagged “Needs Review: Check Line Items” but usable immediately.
+
+US-07 — Needs Review queue with reason codes
+
+As a user, I want problematic receipts grouped into Needs Review with reasons so I can fix only what’s necessary.
+Acceptance criteria
+
+Shows reason codes (totals mismatch, low confidence, merged rows, etc.).
+
+User can edit merchant/date/totals/line items and mark resolved.
+
+US-08 — Split Line Item (mobile auto-math + tax handling)
+
+As a user, I want to split a merged line item on my phone with auto-calculation so I don’t do mental math.
+Acceptance criteria
+
+Default split into 2 rows; can add more.
+
+Entering $x auto-fills remainder.
+
+Tax amount splits proportionally across new rows (user can override → MANUAL).
+
+Save replaces original row and updates reconciliation.
+
+C) Classification & Payment Source
+
+US-09 — Swipe Personal vs Business
+
+As a contractor, I want to swipe items personal or business quickly so classification is fast.
+Acceptance criteria
+
+Swipe left Personal; right Business; Undo works.
+
+Bulk: Mark all Personal/Business; Mark remaining as Personal.
+
+Receipt completes when all items classified.
+
+US-10 — Category suggestion + quick override + remember rule
+
+As a user, I want category suggestions for business items with quick change so tax reporting is accurate.
+Acceptance criteria
+
+Business items get a suggested category.
+
+Category change in ≤ 2 taps.
+
+“Remember this choice” creates merchant/keyword rule.
+
+US-11 — Payment source toggle per line item
+
+As a solopreneur, I want to mark specific business items as paid with personal funds so I can track reimbursements.
+Acceptance criteria
+
+Business items default BUSINESS_FUNDS.
+
+One-tap icon toggle changes payment_source per item only.
+
+Visual feedback is immediate; no modal; no effect on other items.
+
+D) Ledger, Reporting, Export
+
+US-12 — Searchable item ledger linked to originals
+
+As a user, I want a searchable ledger linked to receipts so I can find proof quickly.
+Acceptance criteria
+
+Filters: date, merchant, category, needs_review, payment_source.
+
+Items link to original artifacts; edits persist and reflect in reports/exports.
+
+US-13 — Web reporting
+
+As a business owner, I want a web dashboard summarizing expenses so I can review totals quickly.
+Acceptance criteria
+
+Totals by category/merchant/date range.
+
+Tax summary labels estimated vs extracted vs manual.
+
+payment_source filter supported.
+
+US-14 — Export: CSV + Accountant Pack
+
+As a user, I want an accountant-friendly export with receipts attached so filing is fast and audit-ready.
+Acceptance criteria
+
+CSV includes classification, category, payment_source, tax_amount, tax_method, receipt_id.
+
+Accountant pack includes CSV + receipt files organized by month.
+
+Export success ≥ 99% with no missing artifacts.
+
+E) Privacy / Deletion
+
+US-15 — Data deletion + export prompt
+
+As a user, I want to delete my account and data completely so I trust the app with my financial info.
+Acceptance criteria
+
+Delete Account exists in Settings.
+
+Warning suggests export first.
+
+Confirmation immediately deactivates access.
+
+Hard delete of DB + receipt artifacts completes within 30 days; completion is confirmed to user.

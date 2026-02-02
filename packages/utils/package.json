@@ -1,0 +1,23 @@
+{
+  "name": "@itemize-it/utils",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./validation": { "types": "./dist/validation.d.ts", "default": "./dist/validation.js" },
+    "./constants": { "types": "./dist/constants.d.ts", "default": "./dist/constants.js" }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@itemize-it/types": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

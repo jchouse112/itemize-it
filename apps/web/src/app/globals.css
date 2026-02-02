@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Precision Industrial - Base styles */
+@layer base {
+  html {
+    font-feature-settings: "tnum" on, "lnum" on;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply font-sans;
+  }
+
+  /* Tabular numbers for financial data */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Add component styles here */
+}
+
+@layer utilities {
+  /* Add utility styles here */
+}

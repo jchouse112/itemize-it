@@ -1,0 +1,452 @@
+# Itemize-It (II) — Database Schema (Drizzle) v1.0
+This document defines the Postgres schema for Itemize-It using Drizzle ORM.
+
+## Core Design Principles
+1. **Integer Math (Cents):** All money fields are stored as integer cents (e.g., `amount_cents`) to avoid floating-point errors.
+2. **CUID2 Primary Keys:** All primary keys are text-based (CUID2) so mobile can generate IDs offline without collisions.
+3. **Split Audit Trail:** When a line item is split, the original is **soft-deleted** (`is_deleted = true`) and replacement child rows are inserted with `parent_line_item_id` pointing to the original. This preserves the OCR output for debugging and allows undo/restore behaviors.
+4. **Safe Ingestion:** Receipt totals are **nullable** until extraction completes (email/photo/upload ingestion often creates a receipt record before totals exist).
+5. **Alias Security:** User-facing short aliases (e.g., `JH22@itemz.com`) must map to a **non-guessable routing token** to mitigate brute-force and spam.
+
+---
+
+## 1) Enums (Database Constraints)
+
+**File:** `packages/db/src/schema/enums.ts`
+
+```ts
+import { pgEnum } from "drizzle-orm/pg-core";
+
+export const receiptStatusEnum = pgEnum("receipt_status", [
+  "PROCESSING",    // OCR/AI is running
+  "READY",         // Done, waiting for user review
+  "NEEDS_REVIEW",  // AI low confidence or parsing error
+  "COMPLETED",     // User has approved/classified
+  "ARCHIVED",
+]);
+
+export const receiptSourceEnum = pgEnum("receipt_source", [
+  "EMAIL",
+  "DIRECT_EMAIL",
+  "PHOTO",
+  "UPLOAD",
+]);
+
+export const classificationEnum = pgEnum("classification", [
+  "UNCLASSIFIED",
+  "PERSONAL",
+  "BUSINESS",
+]);
+
+export const paymentSourceEnum = pgEnum("payment_source", [
+  "PERSONAL_FUNDS", // reimbursable if business expense
+  "BUSINESS_FUNDS", // standard
+  "UNKNOWN",
+]);
+
+export const taxMethodEnum = pgEnum("tax_method", [
+  "EXTRACTED", // OCR found this specific tax on the line
+  "PRORATED",  // calculated via (TotalTax / Subtotal) ratio
+  "MANUAL",    // user typed tax amount
+]);
+
+export const artifactTypeEnum = pgEnum("artifact_type", [
+  "ORIGINAL_IMG",
+  "ENHANCED_IMG",
+  "ORIGINAL_PDF",
+  "EMAIL_BODY_HTML",
+  "EMAIL_BODY_TEXT",
+]);
+
+export const duplicateResolutionEnum = pgEnum("duplicate_resolution", [
+  "KEEP_BOTH",
+  "DISCARD_NEW",
+  "REPLACE_EXISTING",
+]);
+
+export const needsReviewReasonEnum = pgEnum("needs_review_reason", [
+  "TOTAL_MISSING",
+  "TOTAL_MISMATCH",
+  "LOW_CONFIDENCE_LINE_ITEMS",
+  "MERGED_ROWS_SUSPECTED",
+  "LINK_GATED",
+  "DUPLICATE_POSSIBLE",
+  "CHECK_LINE_ITEMS_FALLBACK",
+  "MISSING_DATE",
+  "MISSING_MERCHANT",
+]);
+2) Business Profiles (Tenancy)
+File: packages/db/src/schema/businessProfiles.ts
+
+ts
+Copy code
+import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+
+export const businessProfiles = pgTable(
+  "business_profiles",
+  {
+    id: text("id").primaryKey(), // CUID2
+    userId: text("user_id").notNull(), // Auth provider subject (Supabase/Clerk)
+    name: text("name").notNull(),
+    currency: text("currency").notNull().default("USD"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("bp_user_idx").on(t.userId),
+  })
+);
+3) Email Aliases (Ingestion + Routing Security)
+File: packages/db/src/schema/emailAliases.ts
+
+ts
+Copy code
+import {
+  pgTable,
+  text,
+  boolean,
+  timestamp,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { businessProfiles } from "./businessProfiles";
+
+/**
+ * User-facing short alias (e.g., JH22@itemz.com) + internal routing token.
+ * The routing token must be non-guessable and should be used to route inbound email
+ * to the correct tenant without making the alias itself a brute-forceable mailbox.
+ */
+export const emailAliases = pgTable(
+  "email_aliases",
+  {
+    id: text("id").primaryKey(), // CUID2
+    businessProfileId: text("business_profile_id")
+      .notNull()
+      .references(() => businessProfiles.id, { onDelete: "cascade" }),
+
+    // user-facing alias parts
+    aliasLocal: text("alias_local").notNull(), // e.g., "JH22"
+    domain: text("domain").notNull().default("itemz.com"),
+
+    // internal routing secret
+    routingToken: text("routing_token").notNull(),
+
+    isActive: boolean("is_active").notNull().default(true),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    aliasUniq: uniqueIndex("email_alias_domain_unique").on(t.domain, t.aliasLocal),
+    tokenUniq: uniqueIndex("email_alias_token_unique").on(t.routingToken),
+    bpIdx: index("email_alias_bp_idx").on(t.businessProfileId),
+  })
+);
+4) Receipts (Header)
+File: packages/db/src/schema/receipts.ts
+
+ts
+Copy code
+import {
+  pgTable,
+  text,
+  integer,
+  timestamp,
+  jsonb,
+  index,
+} from "drizzle-orm/pg-core";
+import { businessProfiles } from "./businessProfiles";
+import { receiptStatusEnum, receiptSourceEnum } from "./enums";
+
+/**
+ * Totals are nullable until extraction completes.
+ * Confidence is stored as integer basis points (0..100) or (0..10000) depending on your preference.
+ * Here we use 0..100 (basis points not required), but you can switch to 0..10000 easily.
+ */
+export const receipts = pgTable(
+  "receipts",
+  {
+    id: text("id").primaryKey(), // CUID2 (client-generated allowed)
+    businessProfileId: text("business_profile_id")
+      .notNull()
+      .references(() => businessProfiles.id, { onDelete: "cascade" }),
+
+    // Metadata
+    merchantName: text("merchant_name"), // normalized
+    merchantRaw: text("merchant_raw"),   // raw OCR
+    purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+
+    currency: text("currency").notNull().default("USD"),
+
+    // Totals (cents) - nullable until parsing/extraction
+    subtotalCents: integer("subtotal_cents"),
+    taxTotalCents: integer("tax_total_cents"),
+    totalCents: integer("total_cents"),
+
+    // Confidence (0..100)
+    totalsConfidence: integer("totals_confidence"),       // e.g., 0..100
+    lineItemsConfidence: integer("line_items_confidence"), // e.g., 0..100
+
+    // Workflow
+    status: receiptStatusEnum("status").notNull().default("PROCESSING"),
+
+    // Reasons (store as array of strings; enforce with Zod/app)
+    needsReviewReasons: jsonb("needs_review_reasons")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+
+    source: receiptSourceEnum("source").notNull(),
+
+    // Duplicate flagging (MVP-safe: do not auto-merge)
+    possibleDuplicateOfReceiptId: text("possible_duplicate_of_receipt_id"),
+    duplicateFlaggedAt: timestamp("duplicate_flagged_at", { withTimezone: true }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    bpIdx: index("receipts_bp_idx").on(t.businessProfileId),
+    statusIdx: index("receipts_status_idx").on(t.status),
+    purchaseIdx: index("receipts_purchase_idx").on(t.purchaseDate),
+  })
+);
+5) Receipt Artifacts (Files)
+File: packages/db/src/schema/receiptArtifacts.ts
+
+ts
+Copy code
+import {
+  pgTable,
+  text,
+  integer,
+  timestamp,
+  index,
+} from "drizzle-orm/pg-core";
+import { receipts } from "./receipts";
+import { artifactTypeEnum } from "./enums";
+
+/**
+ * Store storage keys/paths, not public URLs.
+ * Generate signed URLs at read-time.
+ */
+export const receiptArtifacts = pgTable(
+  "receipt_artifacts",
+  {
+    id: text("id").primaryKey(), // CUID2
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+
+    storagePath: text("storage_path").notNull(),
+    mimeType: text("mime_type"),
+    type: artifactTypeEnum("type").notNull(),
+
+    fileSizeBytes: integer("file_size_bytes"),
+    checksumSha256: text("checksum_sha256"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    receiptIdx: index("artifacts_receipt_idx").on(t.receiptId),
+    typeIdx: index("artifacts_type_idx").on(t.type),
+  })
+);
+6) Line Items (Engine + Splits + Payment Source + Tax)
+File: packages/db/src/schema/lineItems.ts
+
+ts
+Copy code
+import {
+  pgTable,
+  text,
+  integer,
+  boolean,
+  decimal,
+  timestamp,
+  index,
+} from "drizzle-orm/pg-core";
+import { receipts } from "./receipts";
+import { classificationEnum, paymentSourceEnum, taxMethodEnum } from "./enums";
+
+/**
+ * Split audit trail:
+ * - parent item is soft-deleted (is_deleted = true)
+ * - children rows are inserted with parent_line_item_id referencing the parent
+ */
+export const lineItems = pgTable(
+  "line_items",
+  {
+    id: text("id").primaryKey(), // CUID2
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+
+    // Item details
+    description: text("description").notNull(),
+    quantity: decimal("quantity", { precision: 12, scale: 4 })
+      .notNull()
+      .default("1.0000"),
+
+    // Money (cents)
+    amountCents: integer("amount_cents").notNull(),
+    unitPriceCents: integer("unit_price_cents"),
+
+    // Tax (cents)
+    taxAmountCents: integer("tax_amount_cents").notNull().default(0),
+    taxMethod: taxMethodEnum("tax_method").notNull().default("PRORATED"),
+
+    // Classification
+    classification: classificationEnum("classification").notNull().default("UNCLASSIFIED"),
+    category: text("category"),
+
+    // Payment source toggle (line-item level)
+    paymentSource: paymentSourceEnum("payment_source").notNull().default("BUSINESS_FUNDS"),
+
+    // AI confidence (store as integer 0..10000 to avoid floats)
+    confidenceBp: integer("confidence_bp"), // 0..10000
+
+    // Split/audit
+    isDeleted: boolean("is_deleted").notNull().default(false),
+    parentLineItemId: text("parent_line_item_id").references(() => lineItems.id, {
+      onDelete: "set null",
+    }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    receiptIdx: index("line_items_receipt_idx").on(t.receiptId),
+    parentIdx: index("line_items_parent_idx").on(t.parentLineItemId),
+    activeIdx: index("line_items_active_idx").on(t.receiptId, t.isDeleted),
+  })
+);
+7) Categorization Rules (AI Memory)
+File: packages/db/src/schema/rules.ts
+
+ts
+Copy code
+import {
+  pgTable,
+  text,
+  timestamp,
+  index,
+  boolean,
+} from "drizzle-orm/pg-core";
+import { businessProfiles } from "./businessProfiles";
+import { classificationEnum } from "./enums";
+
+/**
+ * At least one trigger must be present (merchantPattern OR keywordPattern).
+ * Enforce this at the Zod/app layer.
+ */
+export const categorizationRules = pgTable(
+  "categorization_rules",
+  {
+    id: text("id").primaryKey(), // CUID2
+    businessProfileId: text("business_profile_id")
+      .notNull()
+      .references(() => businessProfiles.id, { onDelete: "cascade" }),
+
+    // Triggers (OR)
+    merchantPattern: text("merchant_pattern"), // e.g., "%Starbucks%"
+    keywordPattern: text("keyword_pattern"),   // e.g., "%coffee%"
+
+    // Action
+    categoryToApply: text("category_to_apply").notNull(),
+    classificationToApply: classificationEnum("classification_to_apply"),
+
+    isActive: boolean("is_active").notNull().default(true),
+
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    bpIdx: index("rules_bp_idx").on(t.businessProfileId),
+    activeIdx: index("rules_active_idx").on(t.businessProfileId, t.isActive),
+  })
+);
+8) (Recommended) Receipt Duplicate Resolution Log (Optional but Useful)
+File: packages/db/src/schema/duplicateResolutions.ts
+
+ts
+Copy code
+import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+import { receipts } from "./receipts";
+import { duplicateResolutionEnum } from "./enums";
+
+export const receiptDuplicateResolutions = pgTable(
+  "receipt_duplicate_resolutions",
+  {
+    id: text("id").primaryKey(), // CUID2
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+
+    action: duplicateResolutionEnum("action").notNull(),
+    resolvedByUserId: text("resolved_by_user_id").notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    receiptIdx: index("dup_res_receipt_idx").on(t.receiptId),
+  })
+);
+9) Operational Notes (Required for Implementation)
+9.1 updatedAt maintenance
+Drizzle will not auto-update updated_at unless you:
+
+set it explicitly in repo update calls OR
+
+create a Postgres trigger.
+Pick one approach and enforce it consistently.
+
+9.2 Tenant isolation / RLS
+If using Supabase RLS:
+
+Apply policies so business_profiles.user_id = auth.uid() is required for access.
+
+Every table should be accessible only through business_profile_id joins.
+
+9.3 “Active items” query
+Because splits soft-delete parents, all “normal” item queries must filter:
+
+line_items.is_deleted = false
+
+9.4 Tax proration
+Proration and persistence happen at extraction/tax job time:
+
+If per-line tax exists → EXTRACTED
+
+Else if subtotal + tax total exists → compute and store per line → PRORATED
+
+User edit → MANUAL
+
+9.5 Storage URLs
+Store storage keys (storage_path) and generate signed URLs at read time.
+Do not store permanent public URLs.

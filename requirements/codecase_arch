@@ -1,0 +1,248 @@
+Itemize-It (II) — Codebase Structure & Architecture (v1.2)
+Adds: Domain-based core structure, CUID2 for offline sync, and strict AuthContext merging.
+
+1) Repo layout (monorepo recommended)
+Plaintext
+itemize-it/
+  apps/
+    web/                       # Next.js App Router (dashboard + admin review)
+      app/
+      server/                  # Server-only modules (no React imports)
+      public/
+      tests/
+    mobile/                    # React Native (Expo) - Shared TS support required
+      src/
+      tests/
+  packages/
+    core/                      # Shared domain types + business logic (pure TS)
+      src/
+        common/                # Primitives (Result, Option, Money, shared Zod refinements)
+        receipt/               # Types, Zod schemas, constants for Receipts
+        line-item/             # Types, Zod schemas, math logic for Line Items
+        split/                 # Split logic and schemas
+        tax/                   # Tax schemas and calculation logic
+        export/                # Export schemas
+    ingestion/                 # Email parsing, receipt normalization, de-dupe
+      src/
+        email/
+        attachments/
+        fingerprint/
+        alias/
+    extraction/                # OCR + line-item extraction + confidence scoring
+      src/
+        ocr/
+        parsers/
+        confidence/
+        fallback/
+    classification/            # Personal/business + category + rules engine
+      src/
+    lifecycle/                 # Recevity-backed lifecycle services (adapters)
+      src/
+    reporting/                 # Query builders + exports + accountant pack
+      src/
+    db/                        # Drizzle/SQL + migrations + RLS policy docs
+      src/
+        schema/
+        repos/                 # ALL SQL queries live here
+  infra/
+    supabase/
+    inngest/                   # Job definitions
+  docs/
+    PRD.md
+    ARCHITECTURE.md
+    API.md
+    SECURITY.md
+Constraints:
+
+packages/core remains framework-free (no Next.js/React imports).
+
+React Native (Expo) is required for apps/mobile to consume packages/core directly without transpilation issues.
+
+2) Zod as the boundary validator
+Why: Single source of truth for API, Mobile Forms, and Job Payloads.
+
+Location:
+
+Schemas live inside their domain folders (e.g., packages/core/src/receipt/receipt.schema.ts).
+
+Shared refinements live in packages/core/src/common/validation.ts.
+
+Critical Validation Rules (New):
+
+Money Math Safety:
+
+All monetary inputs in Zod schemas must be Integers (Cents).
+
+Floating point math is banned in validation logic.
+
+Example: $10.50 is sent/validated as 1050.
+
+Optimistic IDs:
+
+Schemas must accept client_generated_id (CUID2/UUIDv7) to support offline creation.
+
+Server validates collision checks but respects the ID generated on the phone.
+
+Must-validate (MVP):
+
+Upload metadata
+
+Line-item updates (Split/Classify/PaymentSource)
+
+Tax Overrides (Manual vs Prorated checks)
+
+Duplicate resolution
+
+Export/Delete requests
+
+Job event payloads
+
+3) Service boundaries (what lives where)
+apps/web & apps/web/server
+Role: Orchestrator.
+
+Security Context Rule: API Routes parse Zod inputs, then Merge with AuthContext (userId/businessId) before calling Repos.
+
+Bad: Repo.delete(body.receipt_id)
+
+Good: Repo.delete(body.receipt_id, auth.userId)
+
+apps/mobile
+Role: Capture + Offline Queue + Swipe UI.
+
+Logic: Uses packages/core/src/line-item/math.ts to perform split calculations locally that exactly match server logic.
+
+packages/*
+core: Domain types, schemas (Zod), pure logic functions (e.g., calculateSplitRemainder).
+
+db: The only package allowed to write SQL.
+
+4) Domain model (authoritative types + schemas)
+Core Enums (packages/core/src/common/enums.ts)
+
+ReceiptSource, ReceiptStatus, Classification, PaymentSource, TaxCalculationMethod, DuplicateResolution.
+
+Zod Schemas (Minimum Set):
+
+common/money.schema.ts (Integer refinement)
+
+receipt/receipt.schema.ts (Public shape)
+
+receipt/upload.schema.ts
+
+line-item/lineItem.schema.ts (Patch/Update)
+
+split/split.schema.ts (Validates total == sum(splits) within 1 cent tolerance)
+
+tax/tax.schema.ts (Validates manual tax amount <= line total)
+
+export/export.schema.ts
+
+user/deletion.schema.ts
+
+Confidence Thresholds:
+
+TOTAL_CONF_HIGH = 0.90
+
+LINEITEM_CONF_MIN = 0.70
+
+5) Data layer (repos + schema)
+DB Schema: packages/db/src/schema/* Repositories: packages/db/src/repos/*
+
+Minimum Tables:
+
+business_profiles
+
+email_aliases
+
+receipts
+
+receipt_artifacts
+
+line_items (includes payment_source, tax_amount, tax_method)
+
+rules (Categorization memory)
+
+exports
+
+deletion_requests
+
+6) Ingestion pipeline
+Job Stages (Zod Validated):
+
+ingest.receipt.created
+
+ingest.email.parse
+
+extract.receipt.ocr
+
+extract.receipt.lineItems (triggers Fallback to Total-Only if low confidence)
+
+tax.apply
+
+classify.suggest
+
+receipt.finalize
+
+7) Mobile offline queue architecture
+Stack: React Native (Expo) + SQLite (optional) or AsyncStorage.
+
+Strategy:
+
+ID Generation: Mobile generates CUID2 IDs for all new entities (Receipts/Splits) immediately.
+
+Queue: Stores encrypted JSON payloads + images locally.
+
+Sync: Iterates queue; sends Zod-validated payloads to API.
+
+Conflict: If server rejects (e.g., 400 Bad Request), item is flagged "Sync Error" for user resolution.
+
+8) API surface (minimal) — Zod Enforced
+Standard Pattern:
+
+TypeScript
+POST /api/endpoint
+1. Verify Auth Token -> get Context { userId }
+2. Schema.parse(body) -> get Data
+3. Service.performAction(Data, Context)
+4. Return Typed Response
+Endpoints (MVP):
+
+POST /api/receipts/upload
+
+POST /api/receipts/photo (Accepts multipart + client_generated_id)
+
+GET /api/receipts
+
+GET /api/receipts/:id
+
+PATCH /api/line-items/:id (Splits/Tax/PaymentSource updates)
+
+POST /api/receipts/:id/resolve-duplicate
+
+POST /api/exports
+
+POST /api/account/delete
+
+9) Privacy deletion implementation
+Request: POST /api/account/delete (Validates password/confirmation).
+
+Job: user.delete (Hard delete from DB + S3 Object deletion loop).
+
+SLA: 30-day grace period (optional) or immediate hard delete per PRD requirements.
+
+10) Testing strategy
+Unit (Core):
+
+Test split.schema.ts with edge cases (odd number splits, 3-way splits).
+
+Test tax.schema.ts for logic errors.
+
+Test "Money Math" logic for rounding errors.
+
+Integration (API):
+
+Assert that providing a valid body without a valid Auth token fails.
+
+Assert that providing a valid body with a mismatched Auth ID (IDOR) fails.
+11) Avoid monoliths

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install:*)",
+      "Bash(dir:*)",
+      "Bash(openssl rand:*)",
+      "Bash(npx supabase db push:*)",
+      "Bash(npx supabase migration:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm --filter @itemize-it/types build:*)"
+    ]
+  }
+}
