@@ -36,12 +36,13 @@ export async function GET(request: NextRequest) {
     .from("ii_recall_matches")
     .select("*, ii_recall_checks(receipt_item_id, checked_at)")
     .eq("business_id", membership.business_id)
-    .order("created_at", { ascending: false });
+    .order("matched_at", { ascending: false });
 
+  // Filter by status: dismissed=false means status='active', dismissed=true means status='dismissed'
   if (dismissed === "false") {
-    query = query.eq("dismissed", false);
+    query = query.eq("status", "active");
   } else if (dismissed === "true") {
-    query = query.eq("dismissed", true);
+    query = query.eq("status", "dismissed");
   }
 
   const { data, error } = await query;
@@ -90,9 +91,12 @@ export async function PATCH(request: NextRequest) {
   }
   const { id, dismissed } = parsed.data;
 
+  // Map boolean dismissed to status column value
+  const newStatus = dismissed ? "dismissed" : "active";
+
   const { error } = await supabase
     .from("ii_recall_matches")
-    .update({ dismissed })
+    .update({ status: newStatus })
     .eq("id", id)
     .eq("business_id", membership.business_id);
 

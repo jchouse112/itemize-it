@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Clock,
@@ -13,13 +14,19 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import LineItemTable from "@/components/app/LineItemTable";
-import SplitItemModal from "@/components/app/SplitItemModal";
 import DuplicateAlert from "@/components/app/DuplicateAlert";
-import DuplicateComparison from "@/components/app/DuplicateComparison";
 import { ProjectCacheProvider } from "@/components/app/ProjectCacheProvider";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import { formatCentsDisplay, formatReceiptDate } from "@/lib/ii-utils";
 import type { ReceiptWithItems, ReceiptStatus, IIReceiptItem, IIReceipt } from "@/lib/ii-types";
+
+// Lazy load heavy modal components
+const SplitItemModal = dynamic(() => import("@/components/app/SplitItemModal"), {
+  loading: () => null,
+});
+const DuplicateComparison = dynamic(() => import("@/components/app/DuplicateComparison"), {
+  loading: () => null,
+});
 
 const STATUS_LABELS: Record<ReceiptStatus, { label: string; color: string }> = {
   pending: { label: "Pending", color: "text-warn" },
@@ -30,12 +37,82 @@ const STATUS_LABELS: Record<ReceiptStatus, { label: string; color: string }> = {
   archived: { label: "Archived", color: "text-concrete/60" },
 };
 
+/** Skeleton placeholder matching the page layout */
+function ReceiptDetailSkeleton() {
+  return (
+    <div className="animate-pulse">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 bg-edge-steel rounded" />
+          <div>
+            <div className="h-6 w-48 bg-edge-steel rounded mb-2" />
+            <div className="h-4 w-32 bg-edge-steel/60 rounded" />
+          </div>
+        </div>
+        <div className="h-9 w-20 bg-edge-steel rounded-lg" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Image skeleton */}
+        <div className="lg:col-span-1">
+          <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden">
+            <div className="aspect-[3/4] bg-edge-steel/50" />
+          </div>
+        </div>
+
+        {/* Right: Details skeleton */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Receipt summary skeleton */}
+          <div className="bg-gunmetal border border-edge-steel rounded-xl p-5">
+            <div className="h-4 w-24 bg-edge-steel rounded mb-4" />
+            <div className="grid grid-cols-2 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <div key={i}>
+                  <div className="h-3 w-16 bg-edge-steel/60 rounded mb-2" />
+                  <div className="h-5 w-24 bg-edge-steel rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes skeleton */}
+          <div className="bg-gunmetal border border-edge-steel rounded-xl p-5">
+            <div className="h-4 w-12 bg-edge-steel rounded mb-3" />
+            <div className="h-4 w-full bg-edge-steel/60 rounded" />
+          </div>
+
+          {/* Line items skeleton */}
+          <div>
+            <div className="h-4 w-28 bg-edge-steel rounded mb-3" />
+            <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden">
+              <div className="border-b border-edge-steel p-3 flex gap-4">
+                <div className="h-4 w-32 bg-edge-steel/60 rounded" />
+                <div className="h-4 w-20 bg-edge-steel/60 rounded" />
+                <div className="h-4 w-16 bg-edge-steel/60 rounded ml-auto" />
+              </div>
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="border-b border-edge-steel/50 p-3 flex gap-4">
+                  <div className="h-5 w-40 bg-edge-steel rounded" />
+                  <div className="h-5 w-24 bg-edge-steel/60 rounded" />
+                  <div className="h-5 w-16 bg-edge-steel rounded ml-auto" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReceiptDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const router = useRouter();
   const [receipt, setReceipt] = useState<ReceiptWithItems | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,6 +143,7 @@ export default function ReceiptDetailPage() {
     const data = await res.json();
     setReceipt(data.receipt);
     setImageUrl(data.imageUrl);
+    setImageLoaded(false); // Reset for new image
     setMerchant(data.receipt.merchant ?? "");
     setPurchaseDate(data.receipt.purchase_date ?? "");
     setTotalCents(
@@ -211,11 +289,7 @@ export default function ReceiptDetailPage() {
   }
 
   if (loading || !receipt) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-safety-orange/30 border-t-safety-orange rounded-full animate-spin" />
-      </div>
-    );
+    return <ReceiptDetailSkeleton />;
   }
 
   const statusCfg = STATUS_LABELS[receipt.status];
@@ -343,14 +417,26 @@ export default function ReceiptDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Receipt image */}
         <div className="lg:col-span-1">
-          <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden">
+          <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden relative">
             {imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={imageUrl}
-                alt="Receipt"
-                className="w-full h-auto"
-              />
+              <>
+                {/* Loading skeleton for image */}
+                {!imageLoaded && (
+                  <div className="absolute inset-0 bg-edge-steel/50 animate-pulse flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-concrete/30 border-t-concrete rounded-full animate-spin" />
+                  </div>
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imageUrl}
+                  alt="Receipt"
+                  loading="lazy"
+                  onLoad={() => setImageLoaded(true)}
+                  className={`w-full h-auto transition-opacity duration-300 ${
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              </>
             ) : (
               <div className="flex items-center justify-center h-64 text-concrete/40 text-sm">
                 No image available
