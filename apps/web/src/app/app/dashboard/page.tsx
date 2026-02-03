@@ -308,7 +308,7 @@ export default async function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-white font-semibold group-hover:text-violet-400 transition-colors">
-                  Need more than storage? Meet Brian.
+                  Need more than expense tracking? Meet Brian.
                 </h3>
                 <p className="text-concrete text-sm mt-0.5">
                   Turn your receipts into close-ready books with automated categorization, HST tracking, and monthly close packages.

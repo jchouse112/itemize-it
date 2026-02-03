@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -125,6 +126,14 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
           >
             <ExternalLink className="w-5 h-5" />
             Connect to Brian
+          </a>
+
+          <a
+            href="mailto:feedback@itemize-it.com?subject=Itemize-It Feedback"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-concrete hover:text-white hover:bg-edge-steel/50 transition-colors"
+          >
+            <MessageSquare className="w-5 h-5" />
+            Provide Feedback
           </a>
 
           {/* Settings — always last */}
