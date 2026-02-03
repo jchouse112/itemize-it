@@ -24,7 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { BUSINESS_TYPES, CURRENCIES } from "@/lib/constants";
+import { BUSINESS_TYPES, CURRENCIES, CANADIAN_PROVINCES, US_STATES } from "@/lib/constants";
 import type { IIInboundEmail } from "@/lib/ii-types";
 import { ForwardingInstructions } from "@/components/app/ForwardingInstructions";
 
@@ -33,6 +33,7 @@ interface BusinessData {
   name: string;
   business_type: string | null;
   default_currency: string;
+  province_state: string | null;
   timezone: string;
   plan_tier: string;
   ii_forwarding_email: string | null;
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [businessType, setBusinessType] = useState("sole_proprietor");
   const [currency, setCurrency] = useState("USD");
+  const [provinceState, setProvinceState] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -87,7 +89,7 @@ export default function SettingsPage() {
       if (membership) {
         const { data: biz } = await supabase
           .from("businesses")
-          .select("id, name, business_type, default_currency, timezone, plan_tier, ii_forwarding_email")
+          .select("id, name, business_type, default_currency, province_state, timezone, plan_tier, ii_forwarding_email")
           .eq("id", membership.business_id)
           .single();
 
@@ -96,6 +98,7 @@ export default function SettingsPage() {
           setName(biz.name);
           setBusinessType(biz.business_type ?? "sole_proprietor");
           setCurrency(biz.default_currency);
+          setProvinceState(biz.province_state ?? "");
           setForwardingEmail(biz.ii_forwarding_email);
         }
       }
@@ -247,6 +250,7 @@ export default function SettingsPage() {
         name: name.trim(),
         business_type: businessType,
         default_currency: currency,
+        province_state: provinceState || null,
       })
       .eq("id", business.id);
 
@@ -383,7 +387,11 @@ export default function SettingsPage() {
             <select
               id="bizCurrency"
               value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
+              onChange={(e) => {
+                setCurrency(e.target.value);
+                // Reset province/state when currency changes
+                setProvinceState("");
+              }}
               className="w-full bg-asphalt border border-edge-steel rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-safety-orange/50 focus:border-safety-orange transition-colors"
             >
               {CURRENCIES.map((c) => (
@@ -393,6 +401,32 @@ export default function SettingsPage() {
               ))}
             </select>
           </div>
+
+          {/* Province/State selector - only for CAD and USD */}
+          {(currency === "CAD" || currency === "USD") && (
+            <div>
+              <label
+                htmlFor="bizProvinceState"
+                className="block text-sm text-concrete mb-1.5"
+              >
+                {currency === "CAD" ? "Province" : "State"}
+                <span className="text-concrete/60 ml-1">(for tax display)</span>
+              </label>
+              <select
+                id="bizProvinceState"
+                value={provinceState}
+                onChange={(e) => setProvinceState(e.target.value)}
+                className="w-full bg-asphalt border border-edge-steel rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-safety-orange/50 focus:border-safety-orange transition-colors"
+              >
+                <option value="">Select {currency === "CAD" ? "province" : "state"}...</option>
+                {(currency === "CAD" ? CANADIAN_PROVINCES : US_STATES).map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <button
             type="submit"

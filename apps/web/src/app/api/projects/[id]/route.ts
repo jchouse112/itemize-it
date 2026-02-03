@@ -33,13 +33,14 @@ export async function GET(
       .single(),
     supabase
       .from("businesses")
-      .select("default_currency")
+      .select("default_currency, province_state")
       .eq("id", businessId)
       .single(),
   ]);
 
   const { data: project, error } = projectResult;
   const currency = businessResult.data?.default_currency ?? "USD";
+  const provinceState = businessResult.data?.province_state ?? null;
 
   if (error || !project) {
     return NextResponse.json(
@@ -92,6 +93,7 @@ export async function GET(
     items,
     total: itemCount,
     currency,
+    provinceState,
   });
 }
 

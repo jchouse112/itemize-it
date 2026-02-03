@@ -16,9 +16,16 @@ import {
   ChevronUp,
   ChevronDown,
   Filter,
+  Globe,
 } from "lucide-react";
 import type { IIProject, ProjectStatus, IIReceiptItem } from "@/lib/ii-types";
 import { formatCents, formatReceiptDate } from "@/lib/ii-utils";
+import {
+  getTaxExclusionText,
+  convertCents,
+  isForeignCurrency,
+  getExchangeRates,
+} from "@/lib/constants";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
 
 interface ProjectWithStats extends IIProject {
@@ -83,6 +90,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<ProjectWithStats | null>(null);
   const [items, setItems] = useState<ItemWithReceipt[]>([]);
   const [currency, setCurrency] = useState("USD");
+  const [provinceState, setProvinceState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -102,11 +110,11 @@ export default function ProjectDetailPage() {
   const [sortField, setSortField] = useState<SortField>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
-  // Tax exclusion message based on currency/country
-  const taxExclusionText =
-    currency === "CAD"
-      ? "Excludes GST/HST/QST"
-      : "Excludes sales tax";
+  // Exchange rates for currency conversion display
+  const [exchangeRates, setExchangeRates] = useState<Record<string, Record<string, number>>>({});
+
+  // Tax exclusion message based on currency and province/state
+  const taxExclusionText = getTaxExclusionText(currency, provinceState);
 
   // Filter and sort items
   const filteredItems = items
@@ -153,7 +161,14 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     async function load() {
-      const res = await fetch(`/api/projects/${id}`);
+      // Fetch project data and exchange rates in parallel
+      const [res, rates] = await Promise.all([
+        fetch(`/api/projects/${id}`),
+        getExchangeRates(),
+      ]);
+
+      setExchangeRates(rates);
+
       if (!res.ok) {
         router.push("/app/projects");
         return;
@@ -162,6 +177,7 @@ export default function ProjectDetailPage() {
       setProject(data.project);
       setItems(data.items ?? []);
       setCurrency(data.currency ?? "USD");
+      setProvinceState(data.provinceState ?? null);
       setName(data.project.name);
       setDescription(data.project.description ?? "");
       setClientName(data.project.client_name ?? "");
@@ -631,11 +647,37 @@ export default function ProjectDetailPage() {
                         item.classification.slice(1)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-white">
-                    {formatCents(
-                      item.total_price_cents,
-                      item.ii_receipts?.currency
-                    )}
+                  <td className="px-4 py-3 text-right font-mono tabular-nums">
+                    {(() => {
+                      const receiptCurrency = item.ii_receipts?.currency;
+                      const isForeign = isForeignCurrency(receiptCurrency, currency);
+                      const convertedCents = isForeign && receiptCurrency
+                        ? convertCents(item.total_price_cents, receiptCurrency, currency, exchangeRates)
+                        : null;
+
+                      return (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isForeign && (
+                            <span
+                              className="text-concrete/70"
+                              title={`Foreign purchase (${receiptCurrency})`}
+                            >
+                              <Globe className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                          <div className="text-right">
+                            <span className="text-white">
+                              {formatCents(item.total_price_cents, receiptCurrency)}
+                            </span>
+                            {convertedCents !== null && (
+                              <div className="text-[10px] text-concrete/70">
+                                ≈ {formatCents(convertedCents, currency)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
