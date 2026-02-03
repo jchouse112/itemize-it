@@ -154,6 +154,7 @@ export default function LineItemTable({
               <button
                 onClick={() => handleCreateRule("merchant")}
                 disabled={creatingRule}
+                title={`Apply to ALL items from "${ruleSuggestion.merchant}"`}
                 className="text-safety-orange hover:text-safety-orange/80 font-medium disabled:opacity-50"
               >
                 {creatingRule ? "Saving..." : "Create merchant rule"}
@@ -163,6 +164,7 @@ export default function LineItemTable({
             <button
               onClick={() => handleCreateRule("keyword")}
               disabled={creatingRule}
+              title={`Apply to items containing "${ruleSuggestion.itemName}"`}
               className="text-safety-orange hover:text-safety-orange/80 font-medium disabled:opacity-50"
             >
               {creatingRule ? "Saving..." : "Create keyword rule"}
@@ -170,6 +172,7 @@ export default function LineItemTable({
             <button
               onClick={() => setRuleSuggestion(null)}
               className="text-concrete/40 hover:text-concrete ml-1"
+              title="Dismiss"
             >
               <X className="w-3.5 h-3.5" />
             </button>
