@@ -11,6 +11,7 @@ import {
   Pencil,
   Save,
   X,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
 import LineItemTable from "@/components/app/LineItemTable";
@@ -19,6 +20,30 @@ import { ProjectCacheProvider } from "@/components/app/ProjectCacheProvider";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import { formatCentsDisplay, formatReceiptDate } from "@/lib/ii-utils";
 import type { ReceiptWithItems, ReceiptStatus, IIReceiptItem, IIReceipt } from "@/lib/ii-types";
+
+/** Celebration overlay shown when all items are classified */
+function ClassificationComplete({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 2500);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="animate-in zoom-in-50 fade-in duration-300 flex flex-col items-center gap-3 bg-gunmetal/95 border border-safe/30 rounded-2xl px-8 py-6 shadow-2xl">
+        <div className="w-16 h-16 rounded-full bg-safe/20 flex items-center justify-center animate-in zoom-in duration-500">
+          <Check className="w-8 h-8 text-safe" strokeWidth={3} />
+        </div>
+        <p className="text-lg font-semibold text-white">All Done!</p>
+        <p className="text-sm text-concrete">All items have been classified</p>
+      </div>
+    </div>
+  );
+}
 
 // Lazy load heavy modal components
 const SplitItemModal = dynamic(() => import("@/components/app/SplitItemModal"), {
@@ -124,6 +149,10 @@ export default function ReceiptDetailPage() {
   // Duplicate comparison modal
   const [showDuplicateComparison, setShowDuplicateComparison] = useState(false);
 
+  // Classification celebration
+  const [showCelebration, setShowCelebration] = useState(false);
+  const prevHadUnclassified = useRef<boolean | null>(null);
+
   // Editable fields
   const [merchant, setMerchant] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
@@ -195,6 +224,22 @@ export default function ReceiptDetailPage() {
       cleanupPromise.then((cleanup) => cleanup?.());
     };
   }, [id, loadReceipt]);
+
+  // Detect when all items become classified and show celebration
+  useEffect(() => {
+    if (!receipt) return;
+    const currentHasUnclassified = receipt.has_unclassified_items;
+
+    // Show celebration when transitioning from unclassified to all classified
+    if (
+      prevHadUnclassified.current === true &&
+      currentHasUnclassified === false
+    ) {
+      setShowCelebration(true);
+    }
+
+    prevHadUnclassified.current = currentHasUnclassified;
+  }, [receipt]);
 
   async function handleSave() {
     setSaving(true);
@@ -705,6 +750,11 @@ export default function ReceiptDetailPage() {
           }}
           onClose={() => setShowDuplicateComparison(false)}
         />
+      )}
+
+      {/* Classification complete celebration */}
+      {showCelebration && (
+        <ClassificationComplete onDismiss={() => setShowCelebration(false)} />
       )}
     </div>
   );
