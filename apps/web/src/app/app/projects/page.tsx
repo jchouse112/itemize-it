@@ -30,6 +30,59 @@ const STATUS_BADGE: Record<
   archived: { label: "Archived", className: "bg-edge-steel text-concrete/60" },
 };
 
+/** Skeleton placeholder for project cards */
+function ProjectsSkeleton() {
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="h-8 w-32 bg-edge-steel rounded animate-pulse" />
+        <div className="h-9 w-28 bg-edge-steel rounded-lg animate-pulse" />
+      </div>
+
+      {/* Filters skeleton */}
+      <div className="flex gap-2 mb-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-7 w-20 bg-edge-steel/60 rounded-lg animate-pulse" />
+        ))}
+      </div>
+
+      {/* Project cards grid skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(6)].map((_, i) => (
+          <div
+            key={i}
+            className="bg-gunmetal border border-edge-steel rounded-xl p-5 animate-pulse"
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="h-5 w-32 bg-edge-steel rounded mb-2" />
+                <div className="h-3 w-20 bg-edge-steel/60 rounded" />
+              </div>
+              <div className="h-5 w-16 bg-edge-steel/60 rounded" />
+            </div>
+            <div className="h-4 w-full bg-edge-steel/40 rounded mb-3" />
+            <div className="flex items-center gap-4">
+              <div className="h-4 w-20 bg-edge-steel rounded" />
+              <div className="h-4 w-16 bg-edge-steel/60 rounded" />
+            </div>
+            {/* Budget bar skeleton (show on some cards) */}
+            {i % 2 === 0 && (
+              <div className="mt-3">
+                <div className="flex justify-between mb-1">
+                  <div className="h-3 w-12 bg-edge-steel/60 rounded" />
+                  <div className="h-3 w-24 bg-edge-steel/60 rounded" />
+                </div>
+                <div className="h-1.5 bg-edge-steel rounded-full" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectWithStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,11 +154,7 @@ export default function ProjectsPage() {
       : projects.filter((p) => p.status === filter);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-safety-orange/30 border-t-safety-orange rounded-full animate-spin" />
-      </div>
-    );
+    return <ProjectsSkeleton />;
   }
 
   return (
