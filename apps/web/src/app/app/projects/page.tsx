@@ -95,6 +95,7 @@ export default function ProjectsPage() {
   const [description, setDescription] = useState("");
   const [clientName, setClientName] = useState("");
   const [budgetDollars, setBudgetDollars] = useState("");
+  const [materialTarget, setMaterialTarget] = useState("");
   const [creating, setCreating] = useState(false);
 
   async function loadProjects() {
@@ -132,6 +133,9 @@ export default function ProjectsPage() {
         budget_cents: budgetDollars
           ? Math.round(parseFloat(budgetDollars) * 100)
           : null,
+        material_target_percent: materialTarget
+          ? parseInt(materialTarget, 10)
+          : null,
       }),
     });
 
@@ -140,6 +144,7 @@ export default function ProjectsPage() {
       setDescription("");
       setClientName("");
       setBudgetDollars("");
+      setMaterialTarget("");
       setShowCreate(false);
       await loadProjects();
     } else {
@@ -227,7 +232,7 @@ export default function ProjectsPage() {
               className="w-full bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm placeholder:text-concrete/40 focus:outline-none focus:ring-2 focus:ring-safety-orange/50 focus:border-safety-orange"
             />
           </div>
-          <div className="flex items-end gap-4">
+          <div className="flex items-end gap-4 flex-wrap">
             <div>
               <label className="block text-xs text-concrete mb-1">
                 Budget
@@ -240,6 +245,20 @@ export default function ProjectsPage() {
                 onChange={(e) => setBudgetDollars(e.target.value)}
                 placeholder="$0.00"
                 className="w-40 bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-concrete/40 focus:outline-none focus:ring-2 focus:ring-safety-orange/50 focus:border-safety-orange"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-concrete mb-1">
+                Material Target %
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={materialTarget}
+                onChange={(e) => setMaterialTarget(e.target.value)}
+                placeholder="40"
+                className="w-24 bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-concrete/40 focus:outline-none focus:ring-2 focus:ring-safety-orange/50 focus:border-safety-orange"
               />
             </div>
             <button
@@ -361,6 +380,29 @@ export default function ProjectsPage() {
                         style={{ width: `${budgetUsed}%` }}
                       />
                     </div>
+                  </div>
+                )}
+
+                {project.material_target_percent !== null && budgetUsed !== null && (
+                  <div className="mt-2 flex items-center justify-between text-[11px]">
+                    <span className="text-concrete">Materials</span>
+                    <span className="font-mono tabular-nums">
+                      <span className="text-safety-orange">
+                        Target {project.material_target_percent}%
+                      </span>
+                      <span className="text-concrete mx-1">/</span>
+                      <span
+                        className={
+                          budgetUsed <= project.material_target_percent
+                            ? "text-safe"
+                            : budgetUsed <= project.material_target_percent * 1.1
+                              ? "text-warn"
+                              : "text-critical"
+                        }
+                      >
+                        Current {Math.round(budgetUsed)}%
+                      </span>
+                    </span>
                   </div>
                 )}
               </Link>

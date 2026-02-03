@@ -111,7 +111,7 @@ export default async function DashboardPage() {
       .eq("classification", "unclassified"),
     supabase
       .from("ii_projects")
-      .select("id, name, status, budget_cents")
+      .select("id, name, status, budget_cents, material_target_percent")
       .eq("business_id", businessId)
       .eq("status", "active")
       .order("created_at", { ascending: false })
@@ -258,6 +258,7 @@ export default async function DashboardPage() {
                   <th className="text-left text-concrete font-medium px-4 py-2.5">Project</th>
                   <th className="text-right text-concrete font-medium px-4 py-2.5">Spend</th>
                   <th className="text-right text-concrete font-medium px-4 py-2.5 hidden sm:table-cell">Budget</th>
+                  <th className="text-right text-concrete font-medium px-4 py-2.5 hidden md:table-cell">Material</th>
                 </tr>
               </thead>
               <tbody>
@@ -282,6 +283,29 @@ export default async function DashboardPage() {
                           }`}>
                             {formatCents(project.budget_cents, currency)}
                             {budgetPct != null && ` (${Math.round(budgetPct)}%)`}
+                          </span>
+                        ) : (
+                          <span className="text-concrete/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right hidden md:table-cell">
+                        {project.material_target_percent != null && budgetPct != null ? (
+                          <span className="text-xs font-mono tabular-nums">
+                            <span className="text-safety-orange">
+                              {project.material_target_percent}%
+                            </span>
+                            <span className="text-concrete mx-0.5">/</span>
+                            <span
+                              className={
+                                budgetPct <= project.material_target_percent
+                                  ? "text-safe"
+                                  : budgetPct <= project.material_target_percent * 1.1
+                                    ? "text-warn"
+                                    : "text-critical"
+                              }
+                            >
+                              {Math.round(budgetPct)}%
+                            </span>
                           </span>
                         ) : (
                           <span className="text-concrete/40">—</span>

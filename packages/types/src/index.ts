@@ -153,6 +153,8 @@ export interface IIProject {
   description: string | null;
   client_name: string | null;
   budget_cents: number | null;
+  /** Target percentage of budget for materials (0-100) */
+  material_target_percent: number | null;
   lat: number | null;
   lng: number | null;
   radius_meters: number | null;

@@ -8,6 +8,7 @@ const UpdateProjectSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
   client_name: z.string().max(200).nullable().optional(),
   budget_cents: z.number().int().nonnegative().nullable().optional(),
+  material_target_percent: z.number().int().min(0).max(100).nullable().optional(),
   status: z.enum(["active", "completed", "archived"]).optional(),
 });
 

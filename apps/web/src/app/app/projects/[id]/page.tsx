@@ -85,6 +85,7 @@ export default function ProjectDetailPage() {
   const [description, setDescription] = useState("");
   const [clientName, setClientName] = useState("");
   const [budgetDollars, setBudgetDollars] = useState("");
+  const [materialTarget, setMaterialTarget] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -102,6 +103,11 @@ export default function ProjectDetailPage() {
       setBudgetDollars(
         data.project.budget_cents
           ? (data.project.budget_cents / 100).toFixed(2)
+          : ""
+      );
+      setMaterialTarget(
+        data.project.material_target_percent !== null
+          ? String(data.project.material_target_percent)
           : ""
       );
       setLoading(false);
@@ -122,6 +128,9 @@ export default function ProjectDetailPage() {
           client_name: clientName.trim() || null,
           budget_cents: budgetDollars
             ? Math.round(parseFloat(budgetDollars) * 100)
+            : null,
+          material_target_percent: materialTarget
+            ? parseInt(materialTarget, 10)
             : null,
         }),
       });
@@ -285,17 +294,33 @@ export default function ProjectDetailPage() {
                   className="w-full bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
                 />
               </div>
-              <div>
-                <label className="block text-xs text-concrete mb-1">
-                  Budget
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={budgetDollars}
-                  onChange={(e) => setBudgetDollars(e.target.value)}
-                  className="w-full bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
-                />
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-concrete mb-1">
+                    Budget
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={budgetDollars}
+                    onChange={(e) => setBudgetDollars(e.target.value)}
+                    className="w-full bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
+                  />
+                </div>
+                <div className="w-24">
+                  <label className="block text-xs text-concrete mb-1">
+                    Material %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={materialTarget}
+                    onChange={(e) => setMaterialTarget(e.target.value)}
+                    placeholder="40"
+                    className="w-full bg-asphalt border border-edge-steel rounded-lg px-3 py-2 text-white text-sm font-mono placeholder:text-concrete/40 focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
+                  />
+                </div>
               </div>
             </div>
           ) : (
@@ -345,6 +370,28 @@ export default function ProjectDetailPage() {
                   style={{ width: `${budgetUsed}%` }}
                 />
               </div>
+            </div>
+          )}
+          {project.material_target_percent !== null && budgetUsed !== null && (
+            <div className="mt-3 flex items-center justify-between text-[11px]">
+              <span className="text-concrete">Materials</span>
+              <span className="font-mono tabular-nums">
+                <span className="text-safety-orange">
+                  Target {project.material_target_percent}%
+                </span>
+                <span className="text-concrete mx-1">/</span>
+                <span
+                  className={
+                    budgetUsed <= project.material_target_percent
+                      ? "text-safe"
+                      : budgetUsed <= project.material_target_percent * 1.1
+                        ? "text-warn"
+                        : "text-critical"
+                  }
+                >
+                  Current {Math.round(budgetUsed)}%
+                </span>
+              </span>
             </div>
           )}
         </div>
