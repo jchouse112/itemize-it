@@ -16,6 +16,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { useState } from "react";
+import FeedbackModal from "./FeedbackModal";
 
 interface NavItem {
   href: string;
@@ -41,9 +42,11 @@ interface SidebarProps {
 export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   return (
     <>
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(true)}
@@ -111,6 +114,14 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
             );
           })}
 
+          <button
+            onClick={() => setFeedbackOpen(true)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-concrete hover:text-white hover:bg-edge-steel/50 transition-colors w-full text-left"
+          >
+            <MessageSquare className="w-5 h-5" />
+            Provide Feedback
+          </button>
+
           {/* Bookkeeping section */}
           <div className="pt-4 pb-2 px-3">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-concrete/40">
@@ -128,16 +139,8 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
             Connect to Brian
           </a>
 
-          <a
-            href="mailto:feedback@itemize-it.com?subject=Itemize-It Feedback"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-concrete hover:text-white hover:bg-edge-steel/50 transition-colors"
-          >
-            <MessageSquare className="w-5 h-5" />
-            Provide Feedback
-          </a>
-
-          {/* Settings — always last */}
-          <div className="pt-2">
+          {/* Settings — always last, visually separated */}
+          <div className="pt-4 mt-2 border-t border-edge-steel">
             <Link
               href="/app/settings"
               onClick={() => setMobileOpen(false)}
