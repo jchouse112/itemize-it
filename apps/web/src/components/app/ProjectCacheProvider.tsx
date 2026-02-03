@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 import type { IIProject } from "@/lib/ii-types";
@@ -42,6 +43,11 @@ export function ProjectCacheProvider({ children }: { children: ReactNode }) {
       .catch(() => setLoaded(true))
       .finally(() => setFetching(false));
   }, [loaded, fetching]);
+
+  // Pre-fetch projects on mount so they're ready when dropdown opens
+  useEffect(() => {
+    ensureLoaded();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <ProjectCacheContext.Provider value={{ projects, loaded, ensureLoaded }}>
