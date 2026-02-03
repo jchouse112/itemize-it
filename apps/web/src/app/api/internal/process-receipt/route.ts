@@ -304,6 +304,9 @@ export async function POST(request: NextRequest) {
         total_cents: extractedData.total_cents,
         subtotal_cents: extractedData.subtotal_cents,
         tax_cents: extractedData.tax_cents,
+        // Payment method extraction (e.g., Visa, Cash, Debit)
+        ...(extractedData.payment_method && { payment_method: extractedData.payment_method }),
+        ...(extractedData.card_last_four && { card_last_four: extractedData.card_last_four }),
         confidence_score: dateFlagged
           ? Math.min(extractedData.confidence, 0.5)
           : extractedData.confidence,
@@ -704,6 +707,8 @@ Return valid JSON with this exact shape:
   "total_cents": integer in cents or null,
   "subtotal_cents": integer in cents or null,
   "tax_cents": integer in cents or null,
+  "payment_method": "cash" | "credit_card" | "debit_card" | "check" | "other" | null,
+  "card_last_four": "last 4 digits of card if visible, e.g. 0431" | null,
   "confidence": float 0-1 for overall extraction confidence,
   "items": [
     {
@@ -719,6 +724,7 @@ Return valid JSON with this exact shape:
   "warnings": ["any issues found, e.g. blurry text, partial data"]
 }
 All monetary values MUST be in integer cents (e.g. $12.99 = 1299).
+For payment_method: look for "Visa", "Mastercard", "Amex", "Debit", "Cash", etc.
 If you cannot read part of the receipt, set confidence lower and add a warning.
 If line items are unreadable, create a single item with the total amount.`,
         },

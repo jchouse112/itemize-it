@@ -104,6 +104,18 @@ export const ExtractionResultSchema = z.object({
   total_cents: centsField.nullable().default(null),
   subtotal_cents: centsField.nullable().default(null),
   tax_cents: centsField.nullable().default(null),
+  // Payment method extracted from receipt (e.g., Visa, Cash, Debit)
+  payment_method: z
+    .enum(["cash", "credit_card", "debit_card", "check", "other"])
+    .nullable()
+    .default(null),
+  // Last 4 digits of card if visible on receipt
+  card_last_four: z
+    .string()
+    .max(10)
+    .transform((v) => v?.replace(/\D/g, "").slice(-4) || null)
+    .nullable()
+    .default(null),
   confidence: z.number().min(0).max(1).default(0.5),
   items: z.array(ExtractedItemSchema).max(500).default([]),
   warnings: z.array(z.string().max(1000)).max(100).default([]),
