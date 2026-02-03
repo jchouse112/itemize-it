@@ -19,6 +19,42 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "archived", label: "Archived" },
 ];
 
+/** Skeleton placeholder for receipt cards list */
+function ReceiptCardsSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[...Array(8)].map((_, i) => (
+        <div
+          key={i}
+          className="bg-gunmetal border border-edge-steel rounded-xl p-4 animate-pulse"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="h-5 w-40 bg-edge-steel rounded" />
+                {i % 3 === 0 && <div className="h-4 w-12 bg-edge-steel/60 rounded" />}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-4 w-24 bg-edge-steel/60 rounded" />
+                <div className="h-4 w-16 bg-edge-steel/60 rounded" />
+                <div className="h-4 w-20 bg-edge-steel/60 rounded" />
+              </div>
+              <div className="flex items-center gap-1.5 mt-2">
+                <div className="h-5 w-16 bg-safe/10 rounded" />
+                {i % 2 === 0 && <div className="h-5 w-16 bg-edge-steel rounded" />}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 ml-4">
+              <div className="h-6 w-20 bg-edge-steel rounded" />
+              <div className="h-4 w-4 bg-edge-steel/60 rounded" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ReceiptsPage() {
   const [receipts, setReceipts] = useState<ReceiptWithItemCount[]>([]);
   const [total, setTotal] = useState(0);
@@ -92,9 +128,7 @@ export default function ReceiptsPage() {
 
       {/* Receipt list */}
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-safety-orange/30 border-t-safety-orange rounded-full animate-spin" />
-        </div>
+        <ReceiptCardsSkeleton />
       ) : receipts.length === 0 ? (
         <div className="bg-gunmetal border border-edge-steel rounded-xl p-12 text-center">
           <Receipt className="w-12 h-12 text-concrete/40 mx-auto mb-4" />

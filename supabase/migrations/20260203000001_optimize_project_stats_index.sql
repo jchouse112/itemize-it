@@ -14,7 +14,7 @@ DROP INDEX IF EXISTS public.idx_ii_receipt_items_project_totals;
 
 -- Create a new covering index that includes classification
 -- This allows the projects API to get all stats from the index alone (index-only scan)
-CREATE INDEX idx_ii_receipt_items_project_stats
+CREATE INDEX IF NOT EXISTS idx_ii_receipt_items_project_stats
   ON public.ii_receipt_items(project_id, total_price_cents, classification)
   WHERE project_id IS NOT NULL;
 

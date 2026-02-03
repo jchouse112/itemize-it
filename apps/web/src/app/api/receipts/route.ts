@@ -276,9 +276,11 @@ export async function GET(request: NextRequest) {
   );
   const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
 
+  // Only fetch item IDs for counting - the has_business_items, has_personal_items,
+  // has_unclassified_items flags are already on ii_receipts
   let query = supabase
     .from("ii_receipts")
-    .select("*, ii_receipt_items(id, name, total_price_cents, classification)", {
+    .select("*, ii_receipt_items(id)", {
       count: "exact",
     })
     .eq("business_id", businessId)
