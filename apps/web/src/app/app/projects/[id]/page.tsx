@@ -12,6 +12,10 @@ import {
   CheckCircle,
   Loader2,
   AlertCircle,
+  Search,
+  ChevronUp,
+  ChevronDown,
+  Filter,
 } from "lucide-react";
 import type { IIProject, ProjectStatus, IIReceiptItem } from "@/lib/ii-types";
 import { formatCents, formatReceiptDate } from "@/lib/ii-utils";
@@ -30,6 +34,10 @@ interface ItemWithReceipt extends IIReceiptItem {
     currency: string;
   } | null;
 }
+
+type SortField = "name" | "merchant" | "date" | "amount";
+type SortDirection = "asc" | "desc";
+type ClassFilter = "all" | "business" | "personal" | "unclassified";
 
 const STATUS_ACTIONS: {
   from: ProjectStatus;
@@ -74,6 +82,7 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const [project, setProject] = useState<ProjectWithStats | null>(null);
   const [items, setItems] = useState<ItemWithReceipt[]>([]);
+  const [currency, setCurrency] = useState("USD");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,6 +96,61 @@ export default function ProjectDetailPage() {
   const [budgetDollars, setBudgetDollars] = useState("");
   const [materialTarget, setMaterialTarget] = useState("");
 
+  // Items table: search, filter, sort
+  const [searchQuery, setSearchQuery] = useState("");
+  const [classFilter, setClassFilter] = useState<ClassFilter>("all");
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+  // Tax exclusion message based on currency/country
+  const taxExclusionText =
+    currency === "CAD"
+      ? "Excludes GST/HST/QST"
+      : "Excludes sales tax";
+
+  // Filter and sort items
+  const filteredItems = items
+    .filter((item) => {
+      // Search filter
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchesName = item.name?.toLowerCase().includes(q);
+        const matchesDesc = item.description?.toLowerCase().includes(q);
+        const matchesMerchant = item.ii_receipts?.merchant?.toLowerCase().includes(q);
+        if (!matchesName && !matchesDesc && !matchesMerchant) return false;
+      }
+      // Classification filter
+      if (classFilter !== "all" && item.classification !== classFilter) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "name":
+          cmp = (a.name ?? "").localeCompare(b.name ?? "");
+          break;
+        case "merchant":
+          cmp = (a.ii_receipts?.merchant ?? "").localeCompare(b.ii_receipts?.merchant ?? "");
+          break;
+        case "date":
+          cmp = (a.ii_receipts?.purchase_date ?? "").localeCompare(b.ii_receipts?.purchase_date ?? "");
+          break;
+        case "amount":
+          cmp = (a.total_price_cents ?? 0) - (b.total_price_cents ?? 0);
+          break;
+      }
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection(field === "amount" ? "desc" : "asc");
+    }
+  }
+
   useEffect(() => {
     async function load() {
       const res = await fetch(`/api/projects/${id}`);
@@ -97,6 +161,7 @@ export default function ProjectDetailPage() {
       const data = await res.json();
       setProject(data.project);
       setItems(data.items ?? []);
+      setCurrency(data.currency ?? "USD");
       setName(data.project.name);
       setDescription(data.project.description ?? "");
       setClientName(data.project.client_name ?? "");
@@ -297,7 +362,8 @@ export default function ProjectDetailPage() {
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="block text-xs text-concrete mb-1">
-                    Budget
+                    Budget{" "}
+                    <span className="text-concrete/60">({taxExclusionText})</span>
                   </label>
                   <input
                     type="number"
@@ -336,6 +402,25 @@ export default function ProjectDetailPage() {
                 <p className="text-white text-sm mt-0.5">
                   {project.client_name ?? "—"}
                 </p>
+              </div>
+              <div className="flex gap-6">
+                <div>
+                  <p className="text-xs text-concrete">
+                    Budget{" "}
+                    <span className="text-concrete/60">({taxExclusionText})</span>
+                  </p>
+                  <p className="text-white text-sm mt-0.5 font-mono tabular-nums">
+                    {project.budget_cents ? formatCents(project.budget_cents) : "—"}
+                  </p>
+                </div>
+                {project.material_target_percent !== null && (
+                  <div>
+                    <p className="text-xs text-concrete">Material Target</p>
+                    <p className="text-white text-sm mt-0.5 font-mono tabular-nums">
+                      {project.material_target_percent}%
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -406,9 +491,40 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Items table */}
-      <h2 className="text-sm font-medium text-concrete mb-3">
-        Assigned Items ({items.length})
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+        <h2 className="text-sm font-medium text-concrete">
+          Assigned Items ({filteredItems.length}{filteredItems.length !== items.length ? ` of ${items.length}` : ""})
+        </h2>
+        {items.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-concrete" />
+              <input
+                type="text"
+                placeholder="Search items..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full sm:w-48 bg-asphalt border border-edge-steel rounded-lg pl-9 pr-3 py-1.5 text-white text-sm placeholder:text-concrete/50 focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
+              />
+            </div>
+            {/* Filter */}
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-concrete" />
+              <select
+                value={classFilter}
+                onChange={(e) => setClassFilter(e.target.value as ClassFilter)}
+                className="w-full sm:w-36 bg-asphalt border border-edge-steel rounded-lg pl-9 pr-3 py-1.5 text-white text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-safety-orange/50"
+              >
+                <option value="all">All Classes</option>
+                <option value="business">Business</option>
+                <option value="personal">Personal</option>
+                <option value="unclassified">Unclassified</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
       {items.length === 0 ? (
         <div className="bg-gunmetal border border-edge-steel rounded-xl p-8 text-center">
           <p className="text-concrete text-sm">
@@ -416,30 +532,68 @@ export default function ProjectDetailPage() {
             detail page.
           </p>
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="bg-gunmetal border border-edge-steel rounded-xl p-8 text-center">
+          <p className="text-concrete text-sm">
+            No items match your search or filter.
+          </p>
+        </div>
       ) : (
         <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-edge-steel">
-                <th className="text-left text-concrete font-medium px-4 py-3">
-                  Item
+                <th
+                  className="text-left text-concrete font-medium px-4 py-3 cursor-pointer hover:text-white transition-colors select-none"
+                  onClick={() => handleSort("name")}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Item
+                    {sortField === "name" && (
+                      sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </span>
                 </th>
-                <th className="text-left text-concrete font-medium px-4 py-3 hidden sm:table-cell">
-                  Merchant
+                <th
+                  className="text-left text-concrete font-medium px-4 py-3 hidden sm:table-cell cursor-pointer hover:text-white transition-colors select-none"
+                  onClick={() => handleSort("merchant")}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Merchant
+                    {sortField === "merchant" && (
+                      sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </span>
                 </th>
-                <th className="text-left text-concrete font-medium px-4 py-3 hidden sm:table-cell">
-                  Date
+                <th
+                  className="text-left text-concrete font-medium px-4 py-3 hidden sm:table-cell cursor-pointer hover:text-white transition-colors select-none"
+                  onClick={() => handleSort("date")}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Date
+                    {sortField === "date" && (
+                      sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </span>
                 </th>
                 <th className="text-left text-concrete font-medium px-4 py-3">
                   Class
                 </th>
-                <th className="text-right text-concrete font-medium px-4 py-3">
-                  Amount
+                <th
+                  className="text-right text-concrete font-medium px-4 py-3 cursor-pointer hover:text-white transition-colors select-none"
+                  onClick={() => handleSort("amount")}
+                >
+                  <span className="inline-flex items-center gap-1 justify-end">
+                    Amount
+                    {sortField === "amount" && (
+                      sortDirection === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {filteredItems.map((item) => (
                 <tr
                   key={item.id}
                   className="border-b border-edge-steel/50 last:border-0 hover:bg-edge-steel/20 transition-colors"

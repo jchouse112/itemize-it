@@ -23,12 +23,23 @@ export async function GET(
   if ("error" in auth) return auth.error;
   const { businessId } = auth.ctx;
 
-  const { data: project, error } = await supabase
-    .from("ii_projects")
-    .select("*")
-    .eq("id", id)
-    .eq("business_id", businessId)
-    .single();
+  // Fetch project and business currency in parallel
+  const [projectResult, businessResult] = await Promise.all([
+    supabase
+      .from("ii_projects")
+      .select("*")
+      .eq("id", id)
+      .eq("business_id", businessId)
+      .single(),
+    supabase
+      .from("businesses")
+      .select("default_currency")
+      .eq("id", businessId)
+      .single(),
+  ]);
+
+  const { data: project, error } = projectResult;
+  const currency = businessResult.data?.default_currency ?? "USD";
 
   if (error || !project) {
     return NextResponse.json(
@@ -80,6 +91,7 @@ export async function GET(
     },
     items,
     total: itemCount,
+    currency,
   });
 }
 
