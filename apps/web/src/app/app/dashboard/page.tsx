@@ -208,33 +208,6 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Connect to Brian */}
-      <div className="mb-8">
-        <a
-          href="https://bookkeeperbrian.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block bg-gunmetal border border-violet-600/30 rounded-xl p-6 hover:border-violet-500/50 transition-colors group"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-lg bg-violet-600 flex items-center justify-center shrink-0">
-                <span className="text-white font-bold text-sm">B</span>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold group-hover:text-violet-400 transition-colors">
-                  Need more than storage? Meet Brian.
-                </h3>
-                <p className="text-concrete text-sm mt-0.5">
-                  Turn your receipts into close-ready books with automated categorization, HST tracking, and monthly close packages.
-                </p>
-              </div>
-            </div>
-            <ArrowUpRight className="w-5 h-5 text-violet-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-        </a>
-      </div>
-
       {/* Top Projects */}
       {topProjects.length > 0 && (
         <div className="mb-8">
@@ -319,6 +292,33 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Connect to Brian */}
+      <div className="mb-8">
+        <a
+          href="https://bookkeeperbrian.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block bg-gunmetal border border-violet-600/30 rounded-xl p-6 hover:border-violet-500/50 transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-lg bg-violet-600 flex items-center justify-center shrink-0">
+                <span className="text-white font-bold text-sm">B</span>
+              </div>
+              <div>
+                <h3 className="text-white font-semibold group-hover:text-violet-400 transition-colors">
+                  Need more than storage? Meet Brian.
+                </h3>
+                <p className="text-concrete text-sm mt-0.5">
+                  Turn your receipts into close-ready books with automated categorization, HST tracking, and monthly close packages.
+                </p>
+              </div>
+            </div>
+            <ArrowUpRight className="w-5 h-5 text-violet-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+        </a>
+      </div>
 
       {/* Empty state */}
       {(totalReceipts ?? 0) === 0 && (
