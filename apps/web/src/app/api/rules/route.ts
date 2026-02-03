@@ -6,14 +6,14 @@ import { z } from "zod";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// API accepts match_type which maps to DB rule_type + match_mode
+// "merchant" → rule_type="merchant", match_mode="exact"
+// "merchant_contains" → rule_type="merchant", match_mode="contains"
+// "keyword" → rule_type="keyword", match_mode="contains"
 const CreateRuleSchema = z.object({
   match_type: z.enum(["merchant", "keyword", "merchant_contains"]),
   match_value: z.string().min(1).max(500),
-  classification: z
-    .enum(["business", "personal", "unclassified"])
-    .nullable()
-    .optional(),
-  category: z.string().max(200).nullable().optional(),
+  classification: z.enum(["business", "personal"]),
   tax_category: z.string().max(200).nullable().optional(),
   project_id: z.string().uuid().nullable().optional(),
 });
@@ -21,14 +21,32 @@ const CreateRuleSchema = z.object({
 const UpdateRuleSchema = z.object({
   match_type: z.enum(["merchant", "keyword", "merchant_contains"]).optional(),
   match_value: z.string().min(1).max(500).optional(),
-  classification: z
-    .enum(["business", "personal", "unclassified"])
-    .nullable()
-    .optional(),
-  category: z.string().max(200).nullable().optional(),
+  classification: z.enum(["business", "personal"]).optional(),
   tax_category: z.string().max(200).nullable().optional(),
   project_id: z.string().uuid().nullable().optional(),
 });
+
+/** Convert API match_type to DB rule_type and match_mode */
+function parseMatchType(matchType: string): { rule_type: string; match_mode: string } {
+  switch (matchType) {
+    case "merchant":
+      return { rule_type: "merchant", match_mode: "exact" };
+    case "merchant_contains":
+      return { rule_type: "merchant", match_mode: "contains" };
+    case "keyword":
+      return { rule_type: "keyword", match_mode: "contains" };
+    default:
+      return { rule_type: "merchant", match_mode: "contains" };
+  }
+}
+
+/** Convert DB rule_type and match_mode to API match_type */
+function toApiMatchType(ruleType: string, matchMode: string): string {
+  if (ruleType === "merchant" && matchMode === "exact") return "merchant";
+  if (ruleType === "merchant" && matchMode === "contains") return "merchant_contains";
+  if (ruleType === "keyword") return "keyword";
+  return "merchant_contains";
+}
 
 /** GET /api/rules — List categorization rules for the current business */
 export async function GET() {
@@ -48,7 +66,18 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to load rules" }, { status: 500 });
   }
 
-  return NextResponse.json({ rules: rules ?? [] });
+  // Transform DB columns to API format for frontend compatibility
+  const transformedRules = (rules ?? []).map((rule) => ({
+    id: rule.id,
+    match_type: toApiMatchType(rule.rule_type, rule.match_mode),
+    match_value: rule.pattern,
+    classification: rule.classification,
+    tax_category: rule.tax_category,
+    project_id: rule.project_id,
+    created_at: rule.created_at,
+  }));
+
+  return NextResponse.json({ rules: transformedRules });
 }
 
 /** POST /api/rules — Create a new categorization rule */
@@ -68,18 +97,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { match_type, match_value, classification, category, tax_category, project_id } =
+  const { match_type, match_value, classification, tax_category, project_id } =
     parsed.data;
+
+  // Convert API match_type to DB rule_type and match_mode
+  const { rule_type, match_mode } = parseMatchType(match_type);
 
   const { data: rule, error } = await supabase
     .from("ii_classification_rules")
     .insert({
       business_id: businessId,
       user_id: userId,
-      match_type,
-      match_value: match_value.trim(),
-      classification: classification ?? null,
-      category: category ?? null,
+      rule_type,
+      pattern: match_value.trim(),
+      match_mode,
+      classification,
       tax_category: tax_category ?? null,
       project_id: project_id ?? null,
     })
@@ -91,7 +123,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create rule" }, { status: 500 });
   }
 
-  return NextResponse.json({ rule }, { status: 201 });
+  // Transform response to API format
+  const transformedRule = {
+    id: rule.id,
+    match_type: toApiMatchType(rule.rule_type, rule.match_mode),
+    match_value: rule.pattern,
+    classification: rule.classification,
+    tax_category: rule.tax_category,
+    project_id: rule.project_id,
+    created_at: rule.created_at,
+  };
+
+  return NextResponse.json({ rule: transformedRule }, { status: 201 });
 }
 
 /** PATCH /api/rules — Update an existing rule by id (passed as query param) */
@@ -123,13 +166,17 @@ export async function PATCH(request: NextRequest) {
 
   // Build update payload from only the provided fields
   const updates: Record<string, unknown> = {};
-  const { match_type, match_value, classification, category, tax_category, project_id } =
+  const { match_type, match_value, classification, tax_category, project_id } =
     parsed.data;
 
-  if (match_type !== undefined) updates.match_type = match_type;
-  if (match_value !== undefined) updates.match_value = match_value.trim();
+  // Convert API match_type to DB rule_type and match_mode
+  if (match_type !== undefined) {
+    const { rule_type, match_mode } = parseMatchType(match_type);
+    updates.rule_type = rule_type;
+    updates.match_mode = match_mode;
+  }
+  if (match_value !== undefined) updates.pattern = match_value.trim();
   if (classification !== undefined) updates.classification = classification;
-  if (category !== undefined) updates.category = category;
   if (tax_category !== undefined) updates.tax_category = tax_category;
   if (project_id !== undefined) updates.project_id = project_id;
 
@@ -153,7 +200,18 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Failed to update rule" }, { status: 500 });
   }
 
-  return NextResponse.json({ rule });
+  // Transform response to API format
+  const transformedRule = {
+    id: rule.id,
+    match_type: toApiMatchType(rule.rule_type, rule.match_mode),
+    match_value: rule.pattern,
+    classification: rule.classification,
+    tax_category: rule.tax_category,
+    project_id: rule.project_id,
+    created_at: rule.created_at,
+  };
+
+  return NextResponse.json({ rule: transformedRule });
 }
 
 /** DELETE /api/rules — Delete a rule by id (passed as query param) */
