@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Filter,
   Globe,
+  Plus,
 } from "lucide-react";
 import type { IIProject, ProjectStatus, IIReceiptItem } from "@/lib/ii-types";
 import { formatCents, formatReceiptDate } from "@/lib/ii-utils";
@@ -27,6 +28,7 @@ import {
   getExchangeRates,
 } from "@/lib/constants";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
+import AddExpenseModal from "@/components/app/AddExpenseModal";
 
 interface ProjectWithStats extends IIProject {
   item_count: number;
@@ -113,6 +115,9 @@ export default function ProjectDetailPage() {
   // Exchange rates for currency conversion display
   const [exchangeRates, setExchangeRates] = useState<Record<string, Record<string, number>>>({});
 
+  // Add expense modal
+  const [showAddExpense, setShowAddExpense] = useState(false);
+
   // Tax exclusion message based on currency and province/state
   const taxExclusionText = getTaxExclusionText(currency, provinceState);
 
@@ -159,42 +164,44 @@ export default function ProjectDetailPage() {
     }
   }
 
-  useEffect(() => {
-    async function load() {
-      // Fetch project data and exchange rates in parallel
-      const [res, rates] = await Promise.all([
-        fetch(`/api/projects/${id}`),
-        getExchangeRates(),
-      ]);
+  async function loadProject() {
+    // Fetch project data and exchange rates in parallel
+    const [res, rates] = await Promise.all([
+      fetch(`/api/projects/${id}`),
+      getExchangeRates(),
+    ]);
 
-      setExchangeRates(rates);
+    setExchangeRates(rates);
 
-      if (!res.ok) {
-        router.push("/app/projects");
-        return;
-      }
-      const data = await res.json();
-      setProject(data.project);
-      setItems(data.items ?? []);
-      setCurrency(data.currency ?? "USD");
-      setProvinceState(data.provinceState ?? null);
-      setName(data.project.name);
-      setDescription(data.project.description ?? "");
-      setClientName(data.project.client_name ?? "");
-      setBudgetDollars(
-        data.project.budget_cents
-          ? (data.project.budget_cents / 100).toFixed(2)
-          : ""
-      );
-      setMaterialTarget(
-        data.project.material_target_percent !== null
-          ? String(data.project.material_target_percent)
-          : ""
-      );
-      setLoading(false);
+    if (!res.ok) {
+      router.push("/app/projects");
+      return;
     }
-    load();
-  }, [id, router]);
+    const data = await res.json();
+    setProject(data.project);
+    setItems(data.items ?? []);
+    setCurrency(data.currency ?? "USD");
+    setProvinceState(data.provinceState ?? null);
+    setName(data.project.name);
+    setDescription(data.project.description ?? "");
+    setClientName(data.project.client_name ?? "");
+    setBudgetDollars(
+      data.project.budget_cents
+        ? (data.project.budget_cents / 100).toFixed(2)
+        : ""
+    );
+    setMaterialTarget(
+      data.project.material_target_percent !== null
+        ? String(data.project.material_target_percent)
+        : ""
+    );
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadProject();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function handleSave() {
     setSaving(true);
@@ -287,6 +294,15 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Add Expense button */}
+          <button
+            onClick={() => setShowAddExpense(true)}
+            className="flex items-center gap-1.5 text-sm bg-safety-orange hover:bg-safety-orange/90 text-white font-semibold rounded-lg px-3 py-2 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Expense
+          </button>
+
           {availableActions.map((action) => (
             <button
               key={action.to}
@@ -716,6 +732,19 @@ export default function ProjectDetailPage() {
         }}
         onCancel={() => setConfirmStatus(null)}
       />
+
+      {/* Add Expense Modal */}
+      {showAddExpense && (
+        <AddExpenseModal
+          projectId={id!}
+          currency={currency}
+          onComplete={() => {
+            setShowAddExpense(false);
+            loadProject();
+          }}
+          onClose={() => setShowAddExpense(false)}
+        />
+      )}
     </div>
   );
 }
