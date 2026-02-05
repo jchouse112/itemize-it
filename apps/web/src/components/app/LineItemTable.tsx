@@ -194,8 +194,8 @@ export default function LineItemTable({
               Classification
             </th>
             {editable && (
-              <th className="text-left text-concrete font-medium px-4 py-3 hidden lg:table-cell">
-                Expense Type
+              <th className="text-left text-concrete font-medium px-2 py-3 hidden xl:table-cell">
+                Type
               </th>
             )}
             {editable && (
@@ -203,7 +203,7 @@ export default function LineItemTable({
                 Project
               </th>
             )}
-            <th className="text-right text-concrete font-medium px-4 py-3 hidden sm:table-cell">
+            <th className="text-right text-concrete font-medium px-4 py-3 hidden xl:table-cell">
               Confidence
             </th>
             <th className="text-right text-concrete font-medium px-4 py-3">
@@ -276,7 +276,7 @@ export default function LineItemTable({
                   )}
                 </td>
                 {editable && (
-                  <td className="px-4 py-3 hidden lg:table-cell">
+                  <td className="px-2 py-3 hidden xl:table-cell">
                     {item.classification === "business" ? (
                       <ExpenseTypeSelector
                         value={item.expense_type ?? "material"}
@@ -301,7 +301,7 @@ export default function LineItemTable({
                     />
                   </td>
                 )}
-                <td className="px-4 py-3 text-right hidden sm:table-cell">
+                <td className="px-4 py-3 text-right hidden xl:table-cell">
                   {item.classification_confidence != null ? (
                     <span
                       className={`font-mono tabular-nums text-xs ${
