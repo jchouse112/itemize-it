@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { IIReceiptItem, IIReceipt, Classification } from "@/lib/ii-types";
+import type { IIReceiptItem, IIReceipt, Classification, ExpenseType } from "@/lib/ii-types";
 import { formatCentsDisplay } from "@/lib/ii-utils";
 import { AlertTriangle, Loader2, Sparkles, X, Scissors, GitBranch } from "lucide-react";
 import ClassificationToggle from "./ClassificationToggle";
+import ExpenseTypeSelector from "./ExpenseTypeSelector";
 import ProjectSelector from "./ProjectSelector";
 
 const DEBOUNCE_MS = 300;
@@ -193,6 +194,11 @@ export default function LineItemTable({
               Classification
             </th>
             {editable && (
+              <th className="text-left text-concrete font-medium px-4 py-3 hidden lg:table-cell">
+                Expense Type
+              </th>
+            )}
+            {editable && (
               <th className="text-left text-concrete font-medium px-4 py-3 hidden md:table-cell">
                 Project
               </th>
@@ -269,6 +275,21 @@ export default function LineItemTable({
                     <ClassificationBadge value={item.classification} />
                   )}
                 </td>
+                {editable && (
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    {item.classification === "business" ? (
+                      <ExpenseTypeSelector
+                        value={item.expense_type ?? "material"}
+                        onChange={(v: ExpenseType) =>
+                          updateItem(item.id, "expense_type", v)
+                        }
+                        disabled={isSaving}
+                      />
+                    ) : (
+                      <span className="text-concrete/30 text-xs">—</span>
+                    )}
+                  </td>
+                )}
                 {editable && (
                   <td className="px-4 py-3 hidden md:table-cell">
                     <ProjectSelector

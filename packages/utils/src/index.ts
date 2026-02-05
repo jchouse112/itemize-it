@@ -122,6 +122,7 @@ export function generateId(): string {
 export interface SplitRow {
   amountCents: number;
   classification: "business" | "personal" | "unclassified";
+  expenseType?: "material" | "labour" | "overhead";
   label?: string;
 }
 

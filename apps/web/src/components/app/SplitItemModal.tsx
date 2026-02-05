@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { X, Plus, Trash2, Loader2, Scissors } from "lucide-react";
-import type { IIReceiptItem, IIReceipt, Classification } from "@/lib/ii-types";
+import type { IIReceiptItem, IIReceipt, Classification, ExpenseType } from "@/lib/ii-types";
 import { formatCents, splitRemainder, validateSplitAmounts } from "@/lib/ii-utils";
 import type { SplitRow } from "@/lib/ii-utils";
 import ClassificationToggle from "./ClassificationToggle";
+import ExpenseTypeSelector from "./ExpenseTypeSelector";
 
 interface SplitItemModalProps {
   item: IIReceiptItem;
@@ -15,8 +16,8 @@ interface SplitItemModalProps {
   onClose: () => void;
 }
 
-function makeRow(classification: Classification = "unclassified"): SplitRow & { key: number } {
-  return { amountCents: 0, classification, key: Date.now() + Math.random() };
+function makeRow(classification: Classification = "unclassified", expenseType?: "material" | "labour" | "overhead"): SplitRow & { key: number } {
+  return { amountCents: 0, classification, expenseType, key: Date.now() + Math.random() };
 }
 
 export default function SplitItemModal({
@@ -28,7 +29,7 @@ export default function SplitItemModal({
 }: SplitItemModalProps) {
   const originalCents = item.total_price_cents;
   const [rows, setRows] = useState<(SplitRow & { key: number })[]>(() => [
-    { amountCents: Math.ceil(originalCents / 2), classification: "business", key: 1 },
+    { amountCents: Math.ceil(originalCents / 2), classification: "business", expenseType: item.expense_type ?? "material", key: 1 },
     { amountCents: Math.floor(originalCents / 2), classification: "personal", key: 2 },
   ]);
   const [taxMethod, setTaxMethod] = useState<"prorated" | "manual">("prorated");
@@ -94,6 +95,7 @@ export default function SplitItemModal({
             rows: rows.map((r) => ({
               amount_cents: r.amountCents,
               classification: r.classification,
+              expense_type: r.classification === "business" ? (r.expenseType ?? "material") : undefined,
               label: r.label,
             })),
             tax_method: taxMethod,
@@ -227,7 +229,7 @@ export default function SplitItemModal({
                 {/* Classification */}
                 <div>
                   <label className="text-[10px] text-concrete block mb-0.5">
-                    Type
+                    Classification
                   </label>
                   <ClassificationToggle
                     value={row.classification}
@@ -237,6 +239,22 @@ export default function SplitItemModal({
                     disabled={saving}
                   />
                 </div>
+
+                {/* Expense Type (business only) */}
+                {row.classification === "business" && (
+                  <div>
+                    <label className="text-[10px] text-concrete block mb-0.5">
+                      Expense Type
+                    </label>
+                    <ExpenseTypeSelector
+                      value={row.expenseType ?? "material"}
+                      onChange={(v: ExpenseType) =>
+                        updateRow(i, { expenseType: v })
+                      }
+                      disabled={saving}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}

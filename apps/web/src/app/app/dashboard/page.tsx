@@ -12,6 +12,9 @@ import {
   ArrowUpRight,
   FolderOpen,
   HelpCircle,
+  Wrench,
+  HardHat,
+  Building,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -96,7 +99,7 @@ export default async function DashboardPage() {
       .eq("status", "complete"),
     supabase
       .from("ii_receipt_items")
-      .select("total_price_cents")
+      .select("total_price_cents, expense_type")
       .eq("business_id", businessId)
       .eq("classification", "business"),
     supabase
@@ -118,7 +121,7 @@ export default async function DashboardPage() {
       .limit(5),
     supabase
       .from("ii_receipt_items")
-      .select("project_id, total_price_cents")
+      .select("project_id, total_price_cents, classification, expense_type")
       .eq("business_id", businessId)
       .not("project_id", "is", null),
   ]);
@@ -130,6 +133,20 @@ export default async function DashboardPage() {
     businessItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
   const businessItems = businessItemsData?.length ?? 0;
 
+  // Expense type breakdowns (within business items)
+  const materialCents =
+    businessItemsData
+      ?.filter((i) => i.expense_type === "material")
+      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
+  const labourCents =
+    businessItemsData
+      ?.filter((i) => i.expense_type === "labour")
+      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
+  const overheadCents =
+    businessItemsData
+      ?.filter((i) => i.expense_type === "overhead")
+      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
+
   const personalSpendCents =
     personalItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
   const personalItems = personalItemsData?.length ?? 0;
@@ -138,14 +155,29 @@ export default async function DashboardPage() {
     unclassifiedItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
   const unclassifiedItems = unclassifiedItemsData?.length ?? 0;
 
-  // Aggregate spend by project
+  // Aggregate spend by project (total, material, labour)
   const projectSpendMap = new Map<string, number>();
+  const projectMaterialMap = new Map<string, number>();
+  const projectLabourMap = new Map<string, number>();
   for (const item of projectItemsData ?? []) {
     if (item.project_id) {
       projectSpendMap.set(
         item.project_id,
         (projectSpendMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
       );
+      if (item.classification === "business") {
+        if (item.expense_type === "material") {
+          projectMaterialMap.set(
+            item.project_id,
+            (projectMaterialMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
+          );
+        } else if (item.expense_type === "labour") {
+          projectLabourMap.set(
+            item.project_id,
+            (projectLabourMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
+          );
+        }
+      }
     }
   }
 
@@ -153,6 +185,8 @@ export default async function DashboardPage() {
     .map((p) => ({
       ...p,
       spendCents: projectSpendMap.get(p.id) ?? 0,
+      materialCents: projectMaterialMap.get(p.id) ?? 0,
+      labourCents: projectLabourMap.get(p.id) ?? 0,
     }))
     .sort((a, b) => b.spendCents - a.spendCents)
     .slice(0, 5);
@@ -208,6 +242,66 @@ export default async function DashboardPage() {
         />
       </div>
 
+      {/* Business Expense Breakdown */}
+      {businessSpendCents > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-medium text-concrete flex items-center gap-2 mb-4">
+            <Briefcase className="w-4 h-4" />
+            Business Breakdown
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-gunmetal border border-edge-steel rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-concrete">Materials</span>
+                <div className="w-7 h-7 rounded-lg bg-safety-orange/10 flex items-center justify-center">
+                  <Wrench className="w-3.5 h-3.5 text-safety-orange" />
+                </div>
+              </div>
+              <p className="text-lg font-bold text-white font-mono tabular-nums">
+                {formatCents(materialCents, currency)}
+              </p>
+              {businessSpendCents > 0 && (
+                <p className="text-[11px] text-concrete mt-0.5">
+                  {Math.round((materialCents / businessSpendCents) * 100)}% of business
+                </p>
+              )}
+            </div>
+            <div className="bg-gunmetal border border-edge-steel rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-concrete">Labour</span>
+                <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <HardHat className="w-3.5 h-3.5 text-blue-400" />
+                </div>
+              </div>
+              <p className="text-lg font-bold text-white font-mono tabular-nums">
+                {formatCents(labourCents, currency)}
+              </p>
+              {businessSpendCents > 0 && (
+                <p className="text-[11px] text-concrete mt-0.5">
+                  {Math.round((labourCents / businessSpendCents) * 100)}% of business
+                </p>
+              )}
+            </div>
+            <div className="bg-gunmetal border border-edge-steel rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-concrete">Overhead</span>
+                <div className="w-7 h-7 rounded-lg bg-concrete/10 flex items-center justify-center">
+                  <Building className="w-3.5 h-3.5 text-concrete" />
+                </div>
+              </div>
+              <p className="text-lg font-bold text-white font-mono tabular-nums">
+                {formatCents(overheadCents, currency)}
+              </p>
+              {businessSpendCents > 0 && (
+                <p className="text-[11px] text-concrete mt-0.5">
+                  {Math.round((overheadCents / businessSpendCents) * 100)}% of business
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Projects */}
       {topProjects.length > 0 && (
         <div className="mb-8">
@@ -232,6 +326,7 @@ export default async function DashboardPage() {
                   <th className="text-right text-concrete font-medium px-4 py-2.5">Spend</th>
                   <th className="text-right text-concrete font-medium px-4 py-2.5 hidden sm:table-cell">Budget</th>
                   <th className="text-right text-concrete font-medium px-4 py-2.5 hidden md:table-cell">Material</th>
+                  <th className="text-right text-concrete font-medium px-4 py-2.5 hidden lg:table-cell">Labour</th>
                 </tr>
               </thead>
               <tbody>
@@ -262,23 +357,18 @@ export default async function DashboardPage() {
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right hidden md:table-cell">
-                        {project.material_target_percent != null && budgetPct != null ? (
-                          <span className="text-xs font-mono tabular-nums">
-                            <span className="text-safety-orange">
-                              {project.material_target_percent}%
-                            </span>
-                            <span className="text-concrete mx-0.5">/</span>
-                            <span
-                              className={
-                                budgetPct <= project.material_target_percent
-                                  ? "text-safe"
-                                  : budgetPct <= project.material_target_percent * 1.1
-                                    ? "text-warn"
-                                    : "text-critical"
-                              }
-                            >
-                              {Math.round(budgetPct)}%
-                            </span>
+                        {project.materialCents > 0 ? (
+                          <span className="text-xs font-mono tabular-nums text-safety-orange">
+                            {formatCents(project.materialCents, currency)}
+                          </span>
+                        ) : (
+                          <span className="text-concrete/40">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right hidden lg:table-cell">
+                        {project.labourCents > 0 ? (
+                          <span className="text-xs font-mono tabular-nums text-blue-400">
+                            {formatCents(project.labourCents, currency)}
                           </span>
                         ) : (
                           <span className="text-concrete/40">—</span>

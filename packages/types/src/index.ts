@@ -17,6 +17,8 @@ export type ReceiptStatus =
 
 export type Classification = "business" | "personal" | "unclassified";
 
+export type ExpenseType = "material" | "labour" | "overhead";
+
 export type PaymentMethod =
   | "cash"
   | "credit_card"
@@ -127,6 +129,7 @@ export interface IIReceiptItem {
   tax_rate: number | null;
   tax_calculation_method: TaxCalculationMethod | null;
   classification: Classification;
+  expense_type: ExpenseType;
   classification_confidence: number | null;
   classified_at: string | null;
   classified_by: string | null;
@@ -204,6 +207,9 @@ export interface ExpenseSummary {
   business_cents: number;
   personal_cents: number;
   unclassified_cents: number;
+  material_cents: number;
+  labour_cents: number;
+  overhead_cents: number;
   receipt_count: number;
   item_count: number;
 }

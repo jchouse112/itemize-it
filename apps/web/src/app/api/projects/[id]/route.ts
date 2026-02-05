@@ -68,7 +68,7 @@ export async function GET(
       .range(offset, offset + limit - 1),
     supabase
       .from("ii_receipt_items")
-      .select("total_price_cents, classification")
+      .select("total_price_cents, classification, expense_type")
       .eq("project_id", id),
   ]);
 
@@ -78,9 +78,16 @@ export async function GET(
 
   const totalCents =
     statsItems.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
+  const businessItems = statsItems.filter((i) => i.classification === "business");
   const businessCents =
-    statsItems
-      .filter((i) => i.classification === "business")
+    businessItems.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
+  const materialCents =
+    businessItems
+      .filter((i) => i.expense_type === "material")
+      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
+  const labourCents =
+    businessItems
+      .filter((i) => i.expense_type === "labour")
       .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
 
   return NextResponse.json({
@@ -89,6 +96,8 @@ export async function GET(
       item_count: itemCount,
       total_cents: totalCents,
       business_cents: businessCents,
+      material_cents: materialCents,
+      labour_cents: labourCents,
     },
     items,
     total: itemCount,

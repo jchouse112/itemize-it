@@ -165,6 +165,7 @@ export async function POST(
     tax_rate: null,
     tax_calculation_method: tax_method === "manual" ? "manual" : "prorated",
     classification: row.classification,
+    expense_type: row.expense_type ?? originalItem.expense_type ?? "material",
     classification_confidence: null,
     classified_at: row.classification !== "unclassified" ? now : null,
     classified_by: row.classification !== "unclassified" ? userId : null,

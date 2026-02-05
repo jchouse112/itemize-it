@@ -6,6 +6,7 @@ import { z } from "zod";
 const ItemUpdateSchema = z.object({
   id: z.string().uuid(),
   classification: z.enum(["business", "personal", "unclassified"]).optional(),
+  expense_type: z.enum(["material", "labour", "overhead"]).optional(),
   project_id: z.string().uuid().nullable().optional(),
   category: z.string().max(200).nullable().optional(),
   tax_category: z.string().max(200).nullable().optional(),
@@ -90,6 +91,10 @@ export async function PATCH(
       data.classification = item.classification;
       data.classified_at = new Date().toISOString();
       data.classified_by = userId;
+    }
+
+    if (item.expense_type !== undefined) {
+      data.expense_type = item.expense_type;
     }
 
     if (item.project_id !== undefined) {

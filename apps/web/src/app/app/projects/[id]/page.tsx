@@ -34,6 +34,8 @@ interface ProjectWithStats extends IIProject {
   item_count: number;
   total_cents: number;
   business_cents: number;
+  material_cents: number;
+  labour_cents: number;
 }
 
 interface ItemWithReceipt extends IIReceiptItem {
@@ -489,26 +491,52 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           )}
-          {project.material_target_percent !== null && budgetUsed !== null && (
-            <div className="mt-3 flex items-center justify-between text-[11px]">
-              <span className="text-concrete">Materials</span>
-              <span className="font-mono tabular-nums">
-                <span className="text-safety-orange">
-                  Target {project.material_target_percent}%
+          {(project.material_cents > 0 || project.labour_cents > 0) && (
+            <div className="mt-3 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-safety-orange">Materials</span>
+                <span className="font-mono tabular-nums text-safety-orange">
+                  {formatCents(project.material_cents)}
+                  {project.business_cents > 0 && (
+                    <span className="text-concrete ml-1">
+                      ({Math.round((project.material_cents / project.business_cents) * 100)}%)
+                    </span>
+                  )}
                 </span>
-                <span className="text-concrete mx-1">/</span>
-                <span
-                  className={
-                    budgetUsed <= project.material_target_percent
-                      ? "text-safe"
-                      : budgetUsed <= project.material_target_percent * 1.1
-                        ? "text-warn"
-                        : "text-critical"
-                  }
-                >
-                  Current {Math.round(budgetUsed)}%
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-blue-400">Labour</span>
+                <span className="font-mono tabular-nums text-blue-400">
+                  {formatCents(project.labour_cents)}
+                  {project.business_cents > 0 && (
+                    <span className="text-concrete ml-1">
+                      ({Math.round((project.labour_cents / project.business_cents) * 100)}%)
+                    </span>
+                  )}
                 </span>
-              </span>
+              </div>
+              {project.material_target_percent !== null && project.business_cents > 0 && (
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-edge-steel/50">
+                  <span className="text-concrete">Material target</span>
+                  <span className="font-mono tabular-nums">
+                    <span className="text-safety-orange">
+                      {project.material_target_percent}%
+                    </span>
+                    <span className="text-concrete mx-1">/</span>
+                    <span
+                      className={
+                        Math.round((project.material_cents / project.business_cents) * 100) <= project.material_target_percent
+                          ? "text-safe"
+                          : Math.round((project.material_cents / project.business_cents) * 100) <= project.material_target_percent * 1.1
+                            ? "text-warn"
+                            : "text-critical"
+                      }
+                    >
+                      Actual {Math.round((project.material_cents / project.business_cents) * 100)}%
+                    </span>
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>

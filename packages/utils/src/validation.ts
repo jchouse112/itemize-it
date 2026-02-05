@@ -130,6 +130,7 @@ export type ValidatedExtractionResult = z.infer<typeof ExtractionResultSchema>;
 const SplitRowSchema = z.object({
   amount_cents: centsField.refine((v) => v > 0, "Amount must be positive"),
   classification: z.enum(["business", "personal", "unclassified"]),
+  expense_type: z.enum(["material", "labour", "overhead"]).optional(),
   label: shortString.optional(),
   project_id: z.string().uuid().nullable().optional(),
   tax_category: z.string().max(200).nullable().optional(),
