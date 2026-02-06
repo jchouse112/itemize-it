@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import LineItemTable from "@/components/app/LineItemTable";
 import DuplicateAlert from "@/components/app/DuplicateAlert";
+import ResizableSplitPanel from "@/components/app/ResizableSplitPanel";
 import { ProjectCacheProvider } from "@/components/app/ProjectCacheProvider";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import { formatCentsDisplay, formatReceiptDate } from "@/lib/ii-utils";
@@ -459,9 +460,8 @@ export default function ReceiptDetailPage() {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Receipt image */}
-        <div className="lg:col-span-1">
+      <ResizableSplitPanel
+        leftPanel={
           <div className="bg-gunmetal border border-edge-steel rounded-xl overflow-hidden relative">
             {imageUrl ? (
               <>
@@ -488,10 +488,9 @@ export default function ReceiptDetailPage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Right: Receipt details + line items */}
-        <div className="lg:col-span-2 space-y-6">
+        }
+        rightPanel={
+          <div className="space-y-6">
           {/* Receipt summary */}
           <div className="bg-gunmetal border border-edge-steel rounded-xl p-5">
             <h2 className="text-sm font-medium text-concrete mb-4">
@@ -718,8 +717,9 @@ export default function ReceiptDetailPage() {
               />
             </ProjectCacheProvider>
           </div>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* Split item modal */}
       {splitItem && (

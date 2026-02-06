@@ -3,9 +3,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { IIReceiptItem, IIReceipt, Classification, ExpenseType } from "@/lib/ii-types";
 import { formatCentsDisplay } from "@/lib/ii-utils";
-import { AlertTriangle, Loader2, Sparkles, X, Scissors, GitBranch, Shield } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Loader2, Sparkles, X, Scissors, GitBranch, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, ShieldBan, ShieldOff } from "lucide-react";
+import type { WarrantyLookupStatus } from "@/lib/ii-types";
 import ClassificationToggle from "./ClassificationToggle";
-import ExpenseTypeSelector from "./ExpenseTypeSelector";
+import ExpenseTypeDropdown from "./ExpenseTypeDropdown";
 import ProjectSelector from "./ProjectSelector";
 
 const DEBOUNCE_MS = 300;
@@ -14,6 +15,18 @@ interface RuleSuggestion {
   classification: Classification;
   merchant: string | null;
   itemName: string;
+}
+
+interface ToastState {
+  type: "success" | "error" | "info";
+  message: string;
+}
+
+interface WarrantyCheckResponse {
+  item?: Partial<IIReceiptItem> & { id: string };
+  cached?: boolean;
+  warranty_found?: boolean;
+  error?: string;
 }
 
 interface LineItemTableProps {
@@ -39,6 +52,7 @@ export default function LineItemTable({
 }: LineItemTableProps) {
   const [saving, setSaving] = useState<string | null>(null);
   const [checkingWarrantyId, setCheckingWarrantyId] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [ruleSuggestion, setRuleSuggestion] = useState<RuleSuggestion | null>(null);
   const [creatingRule, setCreatingRule] = useState(false);
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -51,6 +65,12 @@ export default function LineItemTable({
       debounceTimers.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const flushUpdate = useCallback(
     async (itemId: string, field: string, value: string | null) => {
@@ -143,15 +163,53 @@ export default function LineItemTable({
           body: JSON.stringify({ force: shouldForce }),
         }
       );
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.item) {
+      let data: WarrantyCheckResponse | null = null;
+      try {
+        data = (await res.json()) as WarrantyCheckResponse;
+      } catch {
+        data = null;
+      }
+      const updatedItem = data?.item;
+      if (updatedItem) {
         onItemsUpdated?.(
           items.map((existing) =>
-            existing.id === data.item.id ? { ...existing, ...data.item } : existing
+            existing.id === updatedItem.id ? { ...existing, ...updatedItem } : existing
           )
         );
       }
+      if (!res.ok) {
+        const message =
+          typeof data?.error === "string" && data.error.length > 0
+            ? data.error
+            : "Warranty check failed. Please try again.";
+        setToast({ type: "error", message });
+        return;
+      }
+
+      if (data?.cached === true) {
+        setToast({
+          type: "info",
+          message: "Using recent cached warranty result.",
+        });
+        return;
+      }
+
+      if (data?.warranty_found === true) {
+        setToast({
+          type: "success",
+          message: "Warranty found and added to Lifecycle tracking.",
+        });
+      } else {
+        setToast({
+          type: "info",
+          message: "No warranty coverage found for this item.",
+        });
+      }
+    } catch {
+      setToast({
+        type: "error",
+        message: "Network error while checking warranty.",
+      });
     } finally {
       setCheckingWarrantyId(null);
     }
@@ -171,6 +229,26 @@ export default function LineItemTable({
         return { label: "Hidden", className: "bg-edge-steel/60 text-concrete/80" };
       default:
         return { label: "Needs Check", className: "bg-warn/10 text-warn" };
+    }
+  }
+
+  function getWarrantyIcon(status: WarrantyLookupStatus, isChecking: boolean) {
+    if (isChecking) {
+      return { Icon: Loader2, className: "text-safety-orange animate-spin" };
+    }
+    switch (status) {
+      case "found":
+        return { Icon: ShieldCheck, className: "text-safe" };
+      case "in_progress":
+        return { Icon: Loader2, className: "text-safety-orange animate-spin" };
+      case "not_found":
+        return { Icon: ShieldAlert, className: "text-concrete/40" };
+      case "error":
+        return { Icon: ShieldBan, className: "text-critical" };
+      case "not_eligible":
+        return { Icon: ShieldOff, className: "text-concrete/30" };
+      default: // "unknown"
+        return { Icon: ShieldQuestion, className: "text-concrete/40" };
     }
   }
 
@@ -234,14 +312,11 @@ export default function LineItemTable({
             <th className="text-left text-concrete font-medium px-4 py-3">
               Item
             </th>
-            <th className="text-left text-concrete font-medium px-4 py-3 hidden sm:table-cell">
-              Qty
-            </th>
             <th className="text-left text-concrete font-medium px-4 py-3">
-              Classification
+              Class
             </th>
             {editable && (
-              <th className="text-left text-concrete font-medium px-2 py-3 hidden xl:table-cell">
+              <th className="text-left text-concrete font-medium px-2 py-3 hidden lg:table-cell">
                 Type
               </th>
             )}
@@ -250,9 +325,6 @@ export default function LineItemTable({
                 Project
               </th>
             )}
-            <th className="text-right text-concrete font-medium px-4 py-3 hidden xl:table-cell">
-              Confidence
-            </th>
             <th className="text-left text-concrete font-medium px-4 py-3 hidden lg:table-cell">
               Warranty
             </th>
@@ -287,24 +359,37 @@ export default function LineItemTable({
                     {isSplitChild && (
                       <GitBranch className="w-3 h-3 text-safety-orange/60 shrink-0" />
                     )}
-                    <span className="text-white font-medium">{item.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-concrete/60 text-xs font-mono tabular-nums">
+                          {item.quantity}x
+                        </span>
+                        <span className={`text-white font-medium ${
+                          item.classification_confidence != null && item.classification_confidence < 0.7
+                            ? "underline decoration-critical decoration-wavy decoration-1 underline-offset-2"
+                            : ""
+                        }`}>
+                          {item.name}
+                        </span>
+                      </div>
+                      {item.description && (
+                        <div className="text-concrete text-xs mt-0.5 truncate max-w-[250px]">
+                          {item.description}
+                        </div>
+                      )}
+                      {isSplitChild && item.split_ratio != null && (
+                        <div className="text-safety-orange/60 text-[10px] mt-0.5">
+                          Split — {Math.round(item.split_ratio * 100)}% of original
+                        </div>
+                      )}
+                      {item.needs_review && (
+                        <div className="flex items-center gap-1 text-warn text-xs mt-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {item.review_reasons?.join(", ")}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {item.description && (
-                    <div className="text-concrete text-xs mt-0.5 truncate max-w-[250px]">
-                      {item.description}
-                    </div>
-                  )}
-                  {isSplitChild && item.split_ratio != null && (
-                    <div className="text-safety-orange/60 text-[10px] mt-0.5">
-                      Split — {Math.round(item.split_ratio * 100)}% of original
-                    </div>
-                  )}
-                  {item.needs_review && (
-                    <div className="flex items-center gap-1 text-warn text-xs mt-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      {item.review_reasons?.join(", ")}
-                    </div>
-                  )}
                   {editable && (
                     <button
                       type="button"
@@ -326,9 +411,6 @@ export default function LineItemTable({
                     </button>
                   )}
                 </td>
-                <td className="px-4 py-3 text-concrete hidden sm:table-cell font-mono tabular-nums">
-                  {item.quantity}
-                </td>
                 <td className="px-4 py-3">
                   {editable ? (
                     <div className="flex items-center gap-1">
@@ -348,9 +430,9 @@ export default function LineItemTable({
                   )}
                 </td>
                 {editable && (
-                  <td className="px-2 py-3 hidden xl:table-cell">
+                  <td className="px-2 py-3 hidden lg:table-cell">
                     {item.classification === "business" ? (
-                      <ExpenseTypeSelector
+                      <ExpenseTypeDropdown
                         value={item.expense_type ?? "material"}
                         onChange={(v: ExpenseType) =>
                           updateItem(item.id, "expense_type", v)
@@ -364,58 +446,39 @@ export default function LineItemTable({
                 )}
                 {editable && (
                   <td className="px-4 py-3 hidden md:table-cell">
-                    <ProjectSelector
-                      value={item.project_id}
-                      onChange={(projectId) =>
-                        updateItem(item.id, "project_id", projectId)
-                      }
-                      disabled={isSaving}
-                    />
+                    <div className="max-w-[140px]">
+                      <ProjectSelector
+                        value={item.project_id}
+                        onChange={(projectId) =>
+                          updateItem(item.id, "project_id", projectId)
+                        }
+                        disabled={isSaving}
+                      />
+                    </div>
                   </td>
                 )}
-                <td className="px-4 py-3 text-right hidden xl:table-cell">
-                  {item.classification_confidence != null ? (
-                    <span
-                      className={`font-mono tabular-nums text-xs ${
-                        item.classification_confidence >= 0.9
-                          ? "text-safe"
-                          : item.classification_confidence >= 0.7
-                            ? "text-warn"
-                            : "text-critical"
-                      }`}
-                    >
-                      {Math.round(item.classification_confidence * 100)}%
-                    </span>
-                  ) : (
-                    <span className="text-concrete/40">—</span>
-                  )}
-                </td>
                 <td className="px-4 py-3 hidden lg:table-cell">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[11px] px-2 py-0.5 rounded ${warrantyStatusCfg.className}`}>
-                      {warrantyStatusCfg.label}
-                    </span>
-                    {editable && (
+                  {(() => {
+                    const { Icon, className: iconClass } = getWarrantyIcon(
+                      item.warranty_lookup_status,
+                      isCheckingWarranty
+                    );
+                    return editable ? (
                       <button
                         type="button"
                         onClick={() => handleCheckWarranty(item)}
                         disabled={isCheckingWarranty}
-                        className="text-xs text-safety-orange hover:text-safety-orange/80 disabled:opacity-50 inline-flex items-center gap-1"
+                        title={warrantyStatusCfg.label}
+                        className={`${iconClass} hover:opacity-80 transition-colors disabled:opacity-50`}
                       >
-                        {isCheckingWarranty ? (
-                          <>
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Checking
-                          </>
-                        ) : (
-                          <>
-                            <Shield className="w-3 h-3" />
-                            {item.warranty_lookup_status === "found" ? "Re-check" : "Check"}
-                          </>
-                        )}
+                        <Icon className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
+                    ) : (
+                      <span className={iconClass} title={warrantyStatusCfg.label}>
+                        <Icon className="w-4 h-4" />
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-right font-mono tabular-nums text-white">
                   {formatCentsDisplay(item.total_price_cents, currency)}
@@ -439,6 +502,30 @@ export default function LineItemTable({
         </tbody>
       </table>
     </div>
+    {toast && (
+      <div className="fixed bottom-4 right-4 z-50 max-w-sm">
+        <div
+          className={`border rounded-lg px-3 py-2 text-sm shadow-lg flex items-start gap-2 ${
+            toast.type === "success"
+              ? "bg-safe/10 border-safe/30 text-safe"
+              : toast.type === "error"
+                ? "bg-critical/10 border-critical/30 text-critical"
+                : "bg-edge-steel border-edge-steel text-concrete"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.type === "success" ? (
+            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          ) : toast.type === "error" ? (
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          ) : (
+            <Shield className="w-4 h-4 mt-0.5 shrink-0" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
