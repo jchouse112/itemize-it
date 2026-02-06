@@ -13,64 +13,51 @@ const CreateProjectSchema = z.object({
   status: z.enum(["active", "completed", "archived"]).optional(),
 });
 
+interface ProjectsWithStatsRpcRow {
+  item_count: number | string | null;
+  total_cents: number | string | null;
+  business_cents: number | string | null;
+  [key: string]: unknown;
+}
+
 /** GET /api/projects — List all projects for the current business */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const auth = await getAuthContext(supabase);
   if ("error" in auth) return auth.error;
   const { businessId } = auth.ctx;
 
-  const { data: projects, error } = await supabase
-    .from("ii_projects")
-    .select("*")
-    .eq("business_id", businessId)
-    .order("created_at", { ascending: false });
+  const rawStatus = new URL(request.url).searchParams.get("status");
+  const status =
+    rawStatus && ["active", "completed", "archived"].includes(rawStatus)
+      ? rawStatus
+      : null;
+
+  const { data: projectsRaw, error } = await supabase.rpc(
+    "get_ii_projects_with_stats",
+    {
+      p_business_id: businessId,
+      p_status: status,
+    }
+  );
 
   if (error) {
     console.error("Failed to list projects:", error.message);
     return NextResponse.json({ error: "Failed to load projects" }, { status: 500 });
   }
 
-  if (!projects || projects.length === 0) {
+  if (!projectsRaw || projectsRaw.length === 0) {
     return NextResponse.json({ projects: [] });
   }
 
-  // Single query to get all item stats for all projects at once (avoids N+1)
-  const projectIds = projects.map((p) => p.id);
-  const { data: allItems } = await supabase
-    .from("ii_receipt_items")
-    .select("project_id, total_price_cents, classification")
-    .in("project_id", projectIds);
-
-  // Aggregate stats per project
-  const statsMap = new Map<
-    string,
-    { item_count: number; total_cents: number; business_cents: number }
-  >();
-
-  for (const item of allItems ?? []) {
-    if (!item.project_id) continue;
-    const stats = statsMap.get(item.project_id) ?? {
-      item_count: 0,
-      total_cents: 0,
-      business_cents: 0,
-    };
-    stats.item_count++;
-    stats.total_cents += item.total_price_cents ?? 0;
-    if (item.classification === "business") {
-      stats.business_cents += item.total_price_cents ?? 0;
-    }
-    statsMap.set(item.project_id, stats);
-  }
-
-  const projectsWithStats = projects.map((project) => ({
-    ...project,
-    ...(statsMap.get(project.id) ?? {
-      item_count: 0,
-      total_cents: 0,
-      business_cents: 0,
-    }),
-  }));
+  const projectsWithStats = (projectsRaw as ProjectsWithStatsRpcRow[]).map(
+    (project) => ({
+      ...project,
+      item_count: Number(project.item_count ?? 0),
+      total_cents: Number(project.total_cents ?? 0),
+      business_cents: Number(project.business_cents ?? 0),
+    })
+  );
 
   return NextResponse.json({ projects: projectsWithStats });
 }
@@ -95,7 +82,7 @@ export async function POST(request: NextRequest) {
   const { name, description, client_name, budget_cents } = parsed.data;
 
   // Enforce project limit for the business's plan
-  const gate = await canCreateProject(businessId);
+  const gate = await canCreateProject(businessId, supabase);
   if (!gate.allowed) {
     return NextResponse.json(
       {

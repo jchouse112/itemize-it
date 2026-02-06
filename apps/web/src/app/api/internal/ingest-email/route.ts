@@ -8,6 +8,7 @@ import { getProcessReceiptUrl } from "@/lib/internal-api";
 
 /** Per-source rate limit for inbound email processing */
 const INGEST_RATE_LIMIT = { limit: 30, windowMs: 60_000 }; // 30 emails/min per source
+const MAX_INGEST_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB
 
 // ============================================
 // Forwarding email → business resolution cache
@@ -171,7 +172,7 @@ export async function POST(request: NextRequest) {
   if (bizLimits?.limits_json) {
     const limits = bizLimits.limits_json as { uploads_per_month?: number };
     const uploadsLimit = limits.uploads_per_month ?? 50;
-    const currentCount = await getReceiptCountThisMonth(businessId);
+    const currentCount = await getReceiptCountThisMonth(businessId, supabase);
 
     if (currentCount >= uploadsLimit) {
       log.warn("Email ingestion blocked by plan limit", {
@@ -304,11 +305,18 @@ export async function POST(request: NextRequest) {
     fileType: string;
     filename?: string;
   }
+  interface AttachmentInput {
+    storageKey: string;
+    fileType: string;
+    filename?: string;
+    fileSize?: number;
+  }
   const receiptEntries: ReceiptEntry[] = [];
 
-  for (const attachment of attachments) {
+  const validAttachments: AttachmentInput[] = [];
+  for (const attachment of attachments as AttachmentInput[]) {
     // Skip oversized attachments (guard even if edge function didn't report size)
-    if (attachment.fileSize && attachment.fileSize > 20 * 1024 * 1024) {
+    if (attachment.fileSize && attachment.fileSize > MAX_INGEST_ATTACHMENT_BYTES) {
       log.warn("Skipping oversized email attachment", {
         businessId,
         storageKey: attachment.storageKey,
@@ -319,42 +327,105 @@ export async function POST(request: NextRequest) {
       );
       continue;
     }
+    validAttachments.push(attachment);
+  }
 
-    const { data: receipt, error: receiptError } = await supabase
+  // Insert all receipt records in one query for lower latency.
+  // If bulk insert fails (e.g. unexpected constraint issue), fall back to
+  // per-attachment inserts so one bad row doesn't block the rest.
+  if (validAttachments.length > 0) {
+    const rowsToInsert = validAttachments.map((attachment) => ({
+      business_id: businessId,
+      user_id: userId,
+      storage_key: attachment.storageKey,
+      status: "pending" as const,
+      currency,
+      email_message_id: messageId,
+      email_from: fromEmail,
+      email_subject: subject,
+      email_received_at: receivedAt,
+    }));
+
+    const { data: bulkInserted, error: bulkInsertError } = await supabase
       .from("ii_receipts")
-      .insert({
-        business_id: businessId,
-        user_id: userId,
-        storage_key: attachment.storageKey,
-        status: "pending",
-        currency,
-        email_message_id: messageId,
-        email_from: fromEmail,
-        email_subject: subject,
-        email_received_at: receivedAt,
-      })
-      .select("id")
-      .single();
+      .insert(rowsToInsert)
+      .select("id, storage_key");
 
-    if (receiptError || !receipt) {
-      log.error("Failed to create receipt from email attachment", {
+    if (bulkInsertError || !bulkInserted) {
+      log.warn("Bulk receipt insert failed, falling back to per-attachment insert", {
         businessId,
-        storageKey: attachment.storageKey,
-        error: receiptError?.message,
+        error: bulkInsertError?.message,
+        attachmentCount: validAttachments.length,
       });
-      errors.push(
-        `Failed to create receipt for ${attachment.filename ?? attachment.storageKey}`
-      );
-      continue;
-    }
 
-    receiptIds.push(receipt.id);
-    receiptEntries.push({
-      receiptId: receipt.id,
-      storageKey: attachment.storageKey,
-      fileType: attachment.fileType,
-      filename: attachment.filename,
-    });
+      for (const attachment of validAttachments) {
+        const { data: receipt, error: receiptError } = await supabase
+          .from("ii_receipts")
+          .insert({
+            business_id: businessId,
+            user_id: userId,
+            storage_key: attachment.storageKey,
+            status: "pending",
+            currency,
+            email_message_id: messageId,
+            email_from: fromEmail,
+            email_subject: subject,
+            email_received_at: receivedAt,
+          })
+          .select("id")
+          .single();
+
+        if (receiptError || !receipt) {
+          log.error("Failed to create receipt from email attachment", {
+            businessId,
+            storageKey: attachment.storageKey,
+            error: receiptError?.message,
+          });
+          errors.push(
+            `Failed to create receipt for ${attachment.filename ?? attachment.storageKey}`
+          );
+          continue;
+        }
+
+        receiptIds.push(receipt.id);
+        receiptEntries.push({
+          receiptId: receipt.id,
+          storageKey: attachment.storageKey,
+          fileType: attachment.fileType,
+          filename: attachment.filename,
+        });
+      }
+    } else {
+      const insertedIdsByStorageKey = new Map<string, string[]>();
+      for (const row of bulkInserted as Array<{ id: string; storage_key: string }>) {
+        const existing = insertedIdsByStorageKey.get(row.storage_key) ?? [];
+        existing.push(row.id);
+        insertedIdsByStorageKey.set(row.storage_key, existing);
+      }
+
+      for (const attachment of validAttachments) {
+        const ids = insertedIdsByStorageKey.get(attachment.storageKey);
+        const receiptId = ids?.shift();
+        if (!receiptId) {
+          log.error("Bulk insert returned no matching receipt row", {
+            businessId,
+            storageKey: attachment.storageKey,
+          });
+          errors.push(
+            `Failed to create receipt for ${attachment.filename ?? attachment.storageKey}`
+          );
+          continue;
+        }
+
+        receiptIds.push(receiptId);
+        receiptEntries.push({
+          receiptId,
+          storageKey: attachment.storageKey,
+          fileType: attachment.fileType,
+          filename: attachment.filename,
+        });
+      }
+    }
   }
 
   // 6b. Fire all extraction triggers concurrently

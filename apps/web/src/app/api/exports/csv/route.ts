@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   const { userId, businessId } = auth.ctx;
 
   // Plan gate: check export quota
-  const exportQuota = await canExport(businessId);
+  const exportQuota = await canExport(businessId, supabase);
   if (!exportQuota.allowed) {
     return NextResponse.json(
       {

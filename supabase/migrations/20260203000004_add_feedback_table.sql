@@ -21,25 +21,47 @@ CREATE TABLE IF NOT EXISTS public.ii_feedback (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ii_feedback_business ON public.ii_feedback(business_id);
-CREATE INDEX idx_ii_feedback_user ON public.ii_feedback(user_id);
-CREATE INDEX idx_ii_feedback_status ON public.ii_feedback(status);
-CREATE INDEX idx_ii_feedback_type ON public.ii_feedback(feedback_type);
+CREATE INDEX IF NOT EXISTS idx_ii_feedback_business ON public.ii_feedback(business_id);
+CREATE INDEX IF NOT EXISTS idx_ii_feedback_user ON public.ii_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_ii_feedback_status ON public.ii_feedback(status);
+CREATE INDEX IF NOT EXISTS idx_ii_feedback_type ON public.ii_feedback(feedback_type);
 
 ALTER TABLE public.ii_feedback ENABLE ROW LEVEL SECURITY;
 
 -- Users can view their own feedback
-CREATE POLICY "Users can view own feedback"
-  ON public.ii_feedback FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'ii_feedback'
+      AND policyname = 'Users can view own feedback'
+  ) THEN
+    CREATE POLICY "Users can view own feedback"
+      ON public.ii_feedback FOR SELECT
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Users can create feedback
-CREATE POLICY "Users can create feedback"
-  ON public.ii_feedback FOR INSERT
-  WITH CHECK (
-    auth.uid() = user_id
-    AND public.has_business_access(business_id)
-  );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'ii_feedback'
+      AND policyname = 'Users can create feedback'
+  ) THEN
+    CREATE POLICY "Users can create feedback"
+      ON public.ii_feedback FOR INSERT
+      WITH CHECK (
+        auth.uid() = user_id
+        AND public.has_business_access(business_id)
+      );
+  END IF;
+END $$;
 
 -- Trigger for updated_at
 CREATE OR REPLACE FUNCTION public.handle_ii_feedback_updated_at()
@@ -50,10 +72,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS on_ii_feedback_updated ON public.ii_feedback;
 CREATE TRIGGER on_ii_feedback_updated
   BEFORE UPDATE ON public.ii_feedback
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_ii_feedback_updated_at();
 
 COMMENT ON TABLE public.ii_feedback IS 'User feedback submissions (enhancements, bugs, general)';
-

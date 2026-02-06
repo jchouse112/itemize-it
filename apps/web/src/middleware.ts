@@ -44,56 +44,65 @@ const TRUSTED_IP_HEADERS = [
 ] as const;
 
 export async function middleware(request: NextRequest) {
-  // ------------------------------------------
-  // 1. Supabase auth session refresh
-  // ------------------------------------------
+  const pathname = request.nextUrl.pathname;
+  const hasAuthCookie = hasSupabaseAuthCookie(request);
+
+  // Lazily-initialized response that captures auth cookie refreshes when
+  // we actually need to verify a user.
   let supabaseResponse = NextResponse.next({
     request,
   });
+  let verifiedUser: { id: string } | null | undefined = undefined;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(
-          cookiesToSet: {
-            name: string;
-            value: string;
-            options?: CookieOptions;
-          }[]
-        ) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
+  async function getVerifiedUser(): Promise<{ id: string } | null> {
+    if (verifiedUser !== undefined) return verifiedUser;
 
-  // Refresh the auth token — this is the primary purpose of middleware
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(
+            cookiesToSet: {
+              name: string;
+              value: string;
+              options?: CookieOptions;
+            }[]
+          ) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            supabaseResponse = NextResponse.next({
+              request,
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    verifiedUser = user ? { id: user.id } : null;
+    return verifiedUser;
+  }
 
   // ------------------------------------------
-  // 2. Rate-limit API routes
+  // 1. Rate-limit API routes
   // ------------------------------------------
   // Skip rate limiting for webhook endpoints — these are called by external
   // services (Stripe) with their own retry logic. Rate-limiting them could
   // cause missed events and broken subscription syncs.
-  const isWebhook = request.nextUrl.pathname.startsWith("/api/webhooks/");
+  const isWebhook = pathname.startsWith("/api/webhooks/");
 
-  if (request.nextUrl.pathname.startsWith("/api/") && !isWebhook) {
+  if (pathname.startsWith("/api/") && !isWebhook) {
     const ip = getTrustedClientIp(request) ?? "unknown";
 
     const isMutation = ["POST", "PATCH", "PUT", "DELETE"].includes(
@@ -102,11 +111,11 @@ export async function middleware(request: NextRequest) {
     const isUpload =
       isMutation &&
       request.method === "POST" &&
-      request.nextUrl.pathname === "/api/receipts";
+      pathname === "/api/receipts";
     const isAlias =
       isMutation &&
       request.method === "POST" &&
-      request.nextUrl.pathname === "/api/email-alias";
+      pathname === "/api/email-alias";
 
     const config = isAlias
       ? RATE_LIMITS.alias
@@ -144,59 +153,75 @@ export async function middleware(request: NextRequest) {
     }
 
     // Enforce per-user limits only from a verified Supabase identity.
-    if (user?.id) {
-      const userKey = `user:${user.id}:${tier}`;
+    // Avoid auth round-trip entirely for requests with no auth cookie.
+    if (hasAuthCookie) {
+      const user = await getVerifiedUser();
+      if (user?.id) {
+        const userKey = `user:${user.id}:${tier}`;
       const userResult = checkRateLimit(userKey, config);
 
-      if (!userResult.allowed) {
-        return withSecurityHeaders(
-          NextResponse.json(
-            { error: "Too many requests. Please try again later." },
-            {
-              status: 429,
-              headers: {
-                "Retry-After": String(
-                  Math.ceil(
-                    (userResult.retryAfterMs ?? config.windowMs) / 1000
-                  )
-                ),
-              },
-            }
-          )
-        );
+        if (!userResult.allowed) {
+          return withSecurityHeaders(
+            NextResponse.json(
+              { error: "Too many requests. Please try again later." },
+              {
+                status: 429,
+                headers: {
+                  "Retry-After": String(
+                    Math.ceil(
+                      (userResult.retryAfterMs ?? config.windowMs) / 1000
+                    )
+                  ),
+                },
+              }
+            )
+          );
+        }
       }
     }
   }
 
   // ------------------------------------------
-  // 3. Route protection
+  // 2. Route protection
   // ------------------------------------------
   // Protect /app/* and /onboarding routes — redirect to login if no session
   const isProtectedRoute =
-    request.nextUrl.pathname.startsWith("/app") ||
-    request.nextUrl.pathname.startsWith("/onboarding");
+    pathname.startsWith("/app") ||
+    pathname.startsWith("/onboarding");
 
-  if (isProtectedRoute && !user) {
+  if (isProtectedRoute && !hasAuthCookie) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     url.searchParams.set("next", request.nextUrl.pathname);
     return withSecurityHeaders(NextResponse.redirect(url));
   }
+  if (isProtectedRoute) {
+    const user = await getVerifiedUser();
+    if (!user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth/login";
+      url.searchParams.set("next", request.nextUrl.pathname);
+      return withSecurityHeaders(NextResponse.redirect(url));
+    }
+  }
 
   // If user is logged in and visiting auth pages, redirect to dashboard
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/auth");
+  const isAuthRoute = pathname.startsWith("/auth");
   if (
     isAuthRoute &&
-    user &&
-    !request.nextUrl.pathname.startsWith("/auth/callback")
+    hasAuthCookie &&
+    !pathname.startsWith("/auth/callback")
   ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/app/dashboard";
-    return withSecurityHeaders(NextResponse.redirect(url));
+    const user = await getVerifiedUser();
+    if (user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/app/dashboard";
+      return withSecurityHeaders(NextResponse.redirect(url));
+    }
   }
 
   // ------------------------------------------
-  // 4. Apply security headers
+  // 3. Apply security headers
   // ------------------------------------------
   return withSecurityHeaders(supabaseResponse);
 }
@@ -238,6 +263,15 @@ function isValidIp(value: string): boolean {
     /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
   const ipv6Pattern = /^[0-9a-fA-F:]+$/;
   return ipv4Pattern.test(value) || (value.includes(":") && ipv6Pattern.test(value));
+}
+
+function hasSupabaseAuthCookie(request: NextRequest): boolean {
+  if (request.cookies.has("sb-access-token")) return true;
+  return request.cookies
+    .getAll()
+    .some((cookie) =>
+      cookie.name.startsWith("sb-") && cookie.name.endsWith("-auth-token")
+    );
 }
 
 export const config = {

@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   const { userId, businessId } = auth.ctx;
 
   // Plan gate: check receipt upload quota
-  const quota = await canUploadReceipt(businessId);
+  const quota = await canUploadReceipt(businessId, supabase);
   if (!quota.allowed) {
     return NextResponse.json(
       {

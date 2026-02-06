@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -124,38 +124,41 @@ export default function ProjectDetailPage() {
   const taxExclusionText = getTaxExclusionText(currency, provinceState);
 
   // Filter and sort items
-  const filteredItems = items
-    .filter((item) => {
-      // Search filter
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = item.name?.toLowerCase().includes(q);
-        const matchesDesc = item.description?.toLowerCase().includes(q);
-        const matchesMerchant = item.ii_receipts?.merchant?.toLowerCase().includes(q);
-        if (!matchesName && !matchesDesc && !matchesMerchant) return false;
-      }
-      // Classification filter
-      if (classFilter !== "all" && item.classification !== classFilter) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case "name":
-          cmp = (a.name ?? "").localeCompare(b.name ?? "");
-          break;
-        case "merchant":
-          cmp = (a.ii_receipts?.merchant ?? "").localeCompare(b.ii_receipts?.merchant ?? "");
-          break;
-        case "date":
-          cmp = (a.ii_receipts?.purchase_date ?? "").localeCompare(b.ii_receipts?.purchase_date ?? "");
-          break;
-        case "amount":
-          cmp = (a.total_price_cents ?? 0) - (b.total_price_cents ?? 0);
-          break;
-      }
-      return sortDirection === "asc" ? cmp : -cmp;
-    });
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    return items
+      .filter((item) => {
+        // Search filter
+        if (q) {
+          const matchesName = item.name?.toLowerCase().includes(q);
+          const matchesDesc = item.description?.toLowerCase().includes(q);
+          const matchesMerchant = item.ii_receipts?.merchant?.toLowerCase().includes(q);
+          if (!matchesName && !matchesDesc && !matchesMerchant) return false;
+        }
+        // Classification filter
+        if (classFilter !== "all" && item.classification !== classFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        let cmp = 0;
+        switch (sortField) {
+          case "name":
+            cmp = (a.name ?? "").localeCompare(b.name ?? "");
+            break;
+          case "merchant":
+            cmp = (a.ii_receipts?.merchant ?? "").localeCompare(b.ii_receipts?.merchant ?? "");
+            break;
+          case "date":
+            cmp = (a.ii_receipts?.purchase_date ?? "").localeCompare(b.ii_receipts?.purchase_date ?? "");
+            break;
+          case "amount":
+            cmp = (a.total_price_cents ?? 0) - (b.total_price_cents ?? 0);
+            break;
+        }
+        return sortDirection === "asc" ? cmp : -cmp;
+      });
+  }, [items, searchQuery, classFilter, sortField, sortDirection]);
 
   function handleSort(field: SortField) {
     if (sortField === field) {

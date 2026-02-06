@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { Download, FileArchive, BarChart3, AlertTriangle } from "lucide-react";
 import ExportFilters, { type ExportFilterValues } from "@/components/app/ExportFilters";
 import SpendChart from "@/components/app/SpendChart";
-import { createClient } from "@/lib/supabase/client";
 import { formatCents } from "@/lib/ii-utils";
 
 import type { ProjectStatus } from "@/lib/ii-types";
@@ -33,7 +32,6 @@ export default function ExportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [reportData, setReportData] = useState<ReportData | null>(null);
-  const [reportFilters, setReportFilters] = useState<ExportFilterValues | null>(null);
   const [showReExportWarning, setShowReExportWarning] = useState(false);
   const [pendingExportFilters, setPendingExportFilters] = useState<ExportFilterValues | null>(null);
 
@@ -52,139 +50,30 @@ export default function ExportsPage() {
   // Load report data whenever filters are set
   const loadReportData = useCallback(async (filters: ExportFilterValues) => {
     setReportLoading(true);
-    setReportFilters(filters);
     try {
-      const supabase = createClient();
+      const res = await fetch("/api/exports/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateFrom: filters.dateFrom,
+          dateTo: filters.dateTo,
+          projectId: filters.projectId || undefined,
+          classifications:
+            filters.classifications.length > 0
+              ? filters.classifications
+              : undefined,
+        }),
+      });
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: membership } = await supabase
-        .from("business_members")
-        .select("business_id")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .limit(1)
-        .single();
-
-      if (!membership) return;
-      const businessId = membership.business_id;
-
-      // Fetch items with receipts for the date range
-      let query = supabase
-        .from("ii_receipt_items")
-        .select(`
-          total_price_cents,
-          classification,
-          tax_category,
-          project_id,
-          receipt_id,
-          is_split_original,
-          ii_receipts!inner(
-            merchant,
-            purchase_date,
-            total_cents,
-            status
-          )
-        `)
-        .eq("business_id", businessId)
-        .eq("is_split_original", false)
-        .gte("ii_receipts.purchase_date", filters.dateFrom)
-        .lte("ii_receipts.purchase_date", filters.dateTo);
-
-      if (filters.projectId) {
-        query = query.eq("project_id", filters.projectId);
-      }
-      if (filters.classifications.length > 0) {
-        query = query.in("classification", filters.classifications);
-      }
-
-      // Cap at 10k items to prevent browser memory issues
-      const REPORT_ITEM_LIMIT = 10_000;
-      query = query.limit(REPORT_ITEM_LIMIT);
-
-      const { data: items } = await query;
-
-      // Also fetch projects for name mapping
-      const { data: allProjects } = await supabase
-        .from("ii_projects")
-        .select("id, name")
-        .eq("business_id", businessId);
-
-      const projectMap = new Map((allProjects ?? []).map((p) => [p.id, p.name]));
-
-      if (!items || items.length === 0) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Failed to load report data" }));
+        console.error("Failed to load report data", data.error ?? res.status);
         setReportData(null);
         return;
       }
 
-      // Aggregate data
-      const byCat: Record<string, number> = {};
-      const byProj: Record<string, number> = {};
-      const byMonth: Record<string, { business: number; personal: number; total: number }> = {};
-      const byMerchant: Record<string, number> = {};
-      const receiptIds = new Set<string>();
-      const exportedReceiptIds = new Set<string>();
-
-      for (const item of items) {
-        const receipt = item.ii_receipts as unknown as {
-          merchant: string | null;
-          purchase_date: string | null;
-          total_cents: number | null;
-          status: string;
-        };
-
-        receiptIds.add(item.receipt_id);
-        if (receipt.status === "exported") {
-          exportedReceiptIds.add(item.receipt_id);
-        }
-
-        // By tax category
-        const cat = item.tax_category ?? "uncategorized";
-        byCat[cat] = (byCat[cat] ?? 0) + item.total_price_cents;
-
-        // By project
-        if (item.project_id) {
-          const projName = projectMap.get(item.project_id) ?? "Unknown";
-          byProj[projName] = (byProj[projName] ?? 0) + item.total_price_cents;
-        }
-
-        // By month
-        if (receipt.purchase_date) {
-          const month = receipt.purchase_date.slice(0, 7); // YYYY-MM
-          if (!byMonth[month]) {
-            byMonth[month] = { business: 0, personal: 0, total: 0 };
-          }
-          byMonth[month].total += item.total_price_cents;
-          if (item.classification === "business") {
-            byMonth[month].business += item.total_price_cents;
-          } else if (item.classification === "personal") {
-            byMonth[month].personal += item.total_price_cents;
-          }
-        }
-
-        // By merchant
-        const merchant = receipt.merchant ?? "Unknown";
-        byMerchant[merchant] = (byMerchant[merchant] ?? 0) + item.total_price_cents;
-      }
-
-      setReportData({
-        byCategoryData: Object.entries(byCat).map(([label, cents]) => ({ label, cents })),
-        byProjectData: Object.entries(byProj).map(([label, cents]) => ({ label, cents })),
-        monthlyData: Object.entries(byMonth)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([month, data]) => ({
-            month,
-            businessCents: data.business,
-            personalCents: data.personal,
-            totalCents: data.total,
-          })),
-        topMerchants: Object.entries(byMerchant).map(([label, cents]) => ({ label, cents })),
-        totalItemsCents: items.reduce((s, i) => s + i.total_price_cents, 0),
-        totalItemCount: items.length,
-        receiptCount: receiptIds.size,
-        exportedReceiptCount: exportedReceiptIds.size,
-      });
+      const data = await res.json();
+      setReportData(data.report ?? null);
     } catch (err) {
       console.error("Failed to load report data", err);
     } finally {

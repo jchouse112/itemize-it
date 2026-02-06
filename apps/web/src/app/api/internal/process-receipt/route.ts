@@ -153,6 +153,13 @@ function releaseOpenAISlot(): void {
   }
 }
 
+function buildRuleUpdateGroupKey(data: Record<string, unknown>): string {
+  const sortedEntries = Object.entries(data).sort(([a], [b]) =>
+    a.localeCompare(b)
+  );
+  return JSON.stringify(sortedEntries);
+}
+
 /**
  * POST /api/internal/process-receipt
  *
@@ -486,8 +493,10 @@ export async function POST(request: NextRequest) {
             merchantLower.includes(r.match_value.toLowerCase())
           );
 
-        // Batch: collect all updates, then apply in parallel
+        // Batch: collect all updates, then apply in grouped batches
+        // (many items share the same rule result).
         const itemUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
+        const classifiedAt = new Date().toISOString();
 
         for (const item of insertedItems) {
           // Merchant rule wins, then fall back to keyword
@@ -501,7 +510,7 @@ export async function POST(request: NextRequest) {
             const updates: Record<string, unknown> = {};
             if (matchedRule.classification) {
               updates.classification = matchedRule.classification;
-              updates.classified_at = new Date().toISOString();
+              updates.classified_at = classifiedAt;
               updates.classified_by = "rule:" + matchedRule.id;
             }
             if (matchedRule.category) updates.category = matchedRule.category;
@@ -514,13 +523,33 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Apply rule updates in parallel
+        // Group identical payloads to reduce DB round-trips.
+        const groupedUpdates = new Map<
+          string,
+          { ids: string[]; data: Record<string, unknown> }
+        >();
+
+        for (const { id, data } of itemUpdates) {
+          const key = buildRuleUpdateGroupKey(data);
+          const existing = groupedUpdates.get(key);
+          if (existing) {
+            existing.ids.push(id);
+          } else {
+            groupedUpdates.set(key, { ids: [id], data });
+          }
+        }
+        const groupedUpdateList = Array.from(groupedUpdates.values());
+
+        // Apply grouped updates in parallel
         const updateResults = await Promise.allSettled(
-          itemUpdates.map(({ id, data }) =>
-            supabase.from("ii_receipt_items").update(data).eq("id", id)
+          groupedUpdateList.map(({ ids, data }) =>
+            supabase.from("ii_receipt_items").update(data).in("id", ids)
           )
         );
-        rulesApplied = updateResults.filter((r) => r.status === "fulfilled").length;
+        rulesApplied = updateResults.reduce((sum, result, index) => {
+          if (result.status !== "fulfilled") return sum;
+          return sum + groupedUpdateList[index].ids.length;
+        }, 0);
 
         // Update receipt-level classification flags
         if (rulesApplied > 0) {

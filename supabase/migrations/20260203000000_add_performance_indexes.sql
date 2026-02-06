@@ -36,14 +36,47 @@ CREATE INDEX IF NOT EXISTS idx_ii_notifications_unread
 
 ALTER TABLE public.ii_notifications ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "ii_notifications_select" ON public.ii_notifications
-  FOR SELECT USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'ii_notifications'
+      AND policyname = 'ii_notifications_select'
+  ) THEN
+    CREATE POLICY "ii_notifications_select" ON public.ii_notifications
+      FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "ii_notifications_update" ON public.ii_notifications
-  FOR UPDATE USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'ii_notifications'
+      AND policyname = 'ii_notifications_update'
+  ) THEN
+    CREATE POLICY "ii_notifications_update" ON public.ii_notifications
+      FOR UPDATE USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "ii_notifications_insert" ON public.ii_notifications
-  FOR INSERT WITH CHECK (public.has_business_access(business_id));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'ii_notifications'
+      AND policyname = 'ii_notifications_insert'
+  ) THEN
+    CREATE POLICY "ii_notifications_insert" ON public.ii_notifications
+      FOR INSERT WITH CHECK (public.has_business_access(business_id));
+  END IF;
+END $$;
 
 -- ============================================
 -- 2. RECEIPTS: Optimize listing by created_at DESC
@@ -111,4 +144,3 @@ COMMENT ON TABLE public.ii_notifications IS 'In-app notifications for users (rec
 COMMENT ON INDEX public.idx_ii_receipts_business_created_desc IS 'Optimizes receipt listing with created_at DESC ordering';
 COMMENT ON INDEX public.idx_ii_notifications_user_business IS 'Primary index for notification fetching';
 COMMENT ON INDEX public.idx_ii_recall_matches_active IS 'Partial index for non-dismissed recalls only';
-
