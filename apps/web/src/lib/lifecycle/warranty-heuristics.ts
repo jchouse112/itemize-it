@@ -363,8 +363,17 @@ export function detectWarrantyWithFallback(params: {
   total?: number | null;
   purchaseDate?: string | null;
   manufacturedYear?: number | null;
+  allowGenericFallback?: boolean;
 }): WarrantyDetectionResult | null {
-  const { merchant, brand, itemCategory, total, purchaseDate, manufacturedYear } = params;
+  const {
+    merchant,
+    brand,
+    itemCategory,
+    total,
+    purchaseDate,
+    manufacturedYear,
+    allowGenericFallback = true,
+  } = params;
 
   let startDateStr: string;
   let isEstimated: boolean;
@@ -388,6 +397,7 @@ export function detectWarrantyWithFallback(params: {
   if (!estimate && itemCategory) estimate = detectWarrantyFromItemCategory(itemCategory);
   if (!estimate && total != null) estimate = estimateWarrantyFromPrice(total);
   if (!estimate) {
+    if (!allowGenericFallback) return null;
     estimate = { category: "other", durationMonths: categoryDefaults.other, confidence: 0.3 };
   }
 

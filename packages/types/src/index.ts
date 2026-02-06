@@ -144,6 +144,16 @@ export interface IIReceiptItem {
   review_reasons: string[];
   needs_review: boolean;
   notes: string | null;
+  warranty_eligible: boolean;
+  warranty_eligibility_reason: string | null;
+  track_warranty: boolean;
+  warranty_lookup_status: WarrantyLookupStatus;
+  warranty_end_date: string | null;
+  warranty_checked_at: string | null;
+  warranty_lookup_confidence: number | null;
+  warranty_lookup_source: WarrantySource | null;
+  warranty_lookup_error: string | null;
+  warranty_lookup_metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -234,6 +244,14 @@ export type WarrantySource =
   | "manufactured_year"
   | "ai_lookup"
   | "manual_entry";
+
+export type WarrantyLookupStatus =
+  | "unknown"
+  | "in_progress"
+  | "found"
+  | "not_found"
+  | "error"
+  | "not_eligible";
 
 export type ItemCategory =
   | "computers" | "phones" | "tablets" | "tvs" | "audio"

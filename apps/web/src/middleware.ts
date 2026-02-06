@@ -192,7 +192,10 @@ export async function middleware(request: NextRequest) {
   if (isProtectedRoute && !hasAuthCookie) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    url.searchParams.set("next", request.nextUrl.pathname);
+    url.searchParams.set(
+      "next",
+      `${request.nextUrl.pathname}${request.nextUrl.search}`
+    );
     return withSecurityHeaders(NextResponse.redirect(url));
   }
   if (isProtectedRoute) {
@@ -200,15 +203,20 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/login";
-      url.searchParams.set("next", request.nextUrl.pathname);
+      url.searchParams.set(
+        "next",
+        `${request.nextUrl.pathname}${request.nextUrl.search}`
+      );
       return withSecurityHeaders(NextResponse.redirect(url));
     }
   }
 
   // If user is logged in and visiting auth pages, redirect to dashboard
   const isAuthRoute = pathname.startsWith("/auth");
+  const isInviteAcceptRoute = pathname.startsWith("/auth/accept-invite");
   if (
     isAuthRoute &&
+    !isInviteAcceptRoute &&
     hasAuthCookie &&
     !pathname.startsWith("/auth/callback")
   ) {

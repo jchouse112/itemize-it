@@ -16,13 +16,16 @@ const store = new Map<string, RateLimitEntry>();
 // Periodically evict stale entries to prevent memory leaks
 const CLEANUP_INTERVAL_MS = 60_000;
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+let cleanupWindowMs = 0;
 
 function ensureCleanup(windowMs: number) {
+  cleanupWindowMs = Math.max(cleanupWindowMs, windowMs);
   if (cleanupTimer) return;
   cleanupTimer = setInterval(() => {
     const now = Date.now();
+    const maxWindowMs = cleanupWindowMs;
     for (const [key, entry] of store) {
-      entry.timestamps = entry.timestamps.filter((t) => now - t < windowMs);
+      entry.timestamps = entry.timestamps.filter((t) => now - t < maxWindowMs);
       if (entry.timestamps.length === 0) {
         store.delete(key);
       }

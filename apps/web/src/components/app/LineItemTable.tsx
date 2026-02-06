@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { IIReceiptItem, IIReceipt, Classification, ExpenseType } from "@/lib/ii-types";
 import { formatCentsDisplay } from "@/lib/ii-utils";
-import { AlertTriangle, Loader2, Sparkles, X, Scissors, GitBranch } from "lucide-react";
+import { AlertTriangle, Loader2, Sparkles, X, Scissors, GitBranch, Shield } from "lucide-react";
 import ClassificationToggle from "./ClassificationToggle";
 import ExpenseTypeSelector from "./ExpenseTypeSelector";
 import ProjectSelector from "./ProjectSelector";
@@ -38,6 +38,7 @@ export default function LineItemTable({
   onSplitItem,
 }: LineItemTableProps) {
   const [saving, setSaving] = useState<string | null>(null);
+  const [checkingWarrantyId, setCheckingWarrantyId] = useState<string | null>(null);
   const [ruleSuggestion, setRuleSuggestion] = useState<RuleSuggestion | null>(null);
   const [creatingRule, setCreatingRule] = useState(false);
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -127,6 +128,52 @@ export default function LineItemTable({
     }
   }, [ruleSuggestion]);
 
+  const handleCheckWarranty = useCallback(async (item: IIReceiptItem) => {
+    if (!receiptId) return;
+    setCheckingWarrantyId(item.id);
+    try {
+      const shouldForce =
+        item.warranty_lookup_status === "found" ||
+        item.warranty_lookup_status === "not_found";
+      const res = await fetch(
+        `/api/receipts/${receiptId}/items/${item.id}/warranty-check`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force: shouldForce }),
+        }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.item) {
+        onItemsUpdated?.(
+          items.map((existing) =>
+            existing.id === data.item.id ? { ...existing, ...data.item } : existing
+          )
+        );
+      }
+    } finally {
+      setCheckingWarrantyId(null);
+    }
+  }, [items, onItemsUpdated, receiptId]);
+
+  function getWarrantyStatusConfig(status: IIReceiptItem["warranty_lookup_status"]) {
+    switch (status) {
+      case "found":
+        return { label: "Found", className: "bg-safe/10 text-safe" };
+      case "in_progress":
+        return { label: "Checking", className: "bg-safety-orange/10 text-safety-orange" };
+      case "not_found":
+        return { label: "Not Found", className: "bg-edge-steel text-concrete" };
+      case "error":
+        return { label: "Error", className: "bg-critical/10 text-critical" };
+      case "not_eligible":
+        return { label: "Hidden", className: "bg-edge-steel/60 text-concrete/80" };
+      default:
+        return { label: "Needs Check", className: "bg-warn/10 text-warn" };
+    }
+  }
+
   if (items.length === 0) {
     return (
       <div className="bg-gunmetal border border-edge-steel rounded-xl p-8 text-center">
@@ -206,6 +253,9 @@ export default function LineItemTable({
             <th className="text-right text-concrete font-medium px-4 py-3 hidden xl:table-cell">
               Confidence
             </th>
+            <th className="text-left text-concrete font-medium px-4 py-3 hidden lg:table-cell">
+              Warranty
+            </th>
             <th className="text-right text-concrete font-medium px-4 py-3">
               Amount
             </th>
@@ -221,8 +271,10 @@ export default function LineItemTable({
             .filter((item) => !item.is_split_original)
             .map((item) => {
             const isSaving = saving === item.id;
+            const isCheckingWarranty = checkingWarrantyId === item.id;
             const isSplitChild = !!item.parent_item_id;
             const canSplit = editable && !isSplitChild && !item.is_split_original;
+            const warrantyStatusCfg = getWarrantyStatusConfig(item.warranty_lookup_status);
             return (
               <tr
                 key={item.id}
@@ -252,6 +304,26 @@ export default function LineItemTable({
                       <AlertTriangle className="w-3 h-3" />
                       {item.review_reasons?.join(", ")}
                     </div>
+                  )}
+                  {editable && (
+                    <button
+                      type="button"
+                      onClick={() => handleCheckWarranty(item)}
+                      disabled={isCheckingWarranty}
+                      className="lg:hidden mt-1 text-[11px] text-safety-orange hover:text-safety-orange/80 disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      {isCheckingWarranty ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Checking warranty
+                        </>
+                      ) : (
+                        <>
+                          <Shield className="w-3 h-3" />
+                          Check warranty
+                        </>
+                      )}
+                    </button>
                   )}
                 </td>
                 <td className="px-4 py-3 text-concrete hidden sm:table-cell font-mono tabular-nums">
@@ -317,6 +389,33 @@ export default function LineItemTable({
                   ) : (
                     <span className="text-concrete/40">—</span>
                   )}
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[11px] px-2 py-0.5 rounded ${warrantyStatusCfg.className}`}>
+                      {warrantyStatusCfg.label}
+                    </span>
+                    {editable && (
+                      <button
+                        type="button"
+                        onClick={() => handleCheckWarranty(item)}
+                        disabled={isCheckingWarranty}
+                        className="text-xs text-safety-orange hover:text-safety-orange/80 disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        {isCheckingWarranty ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Checking
+                          </>
+                        ) : (
+                          <>
+                            <Shield className="w-3 h-3" />
+                            {item.warranty_lookup_status === "found" ? "Re-check" : "Check"}
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right font-mono tabular-nums text-white">
                   {formatCentsDisplay(item.total_price_cents, currency)}

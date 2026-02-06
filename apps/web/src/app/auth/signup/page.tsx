@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { pickSafeRedirectPath } from "@/lib/redirect";
 import Link from "next/link";
 import {
   UserPlus,
@@ -40,12 +41,22 @@ export default function SignupPage() {
 
     setLoading(true);
 
+    const params = new URLSearchParams(window.location.search);
+    const nextPath = pickSafeRedirectPath([
+      params.get("next"),
+      params.get("redirect"),
+    ]);
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    if (nextPath !== "/app/dashboard") {
+      callbackUrl.searchParams.set("next", nextPath);
+    }
+
     const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl.toString(),
       },
     });
 

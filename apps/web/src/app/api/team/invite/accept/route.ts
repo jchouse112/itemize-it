@@ -96,8 +96,10 @@ export async function POST(request: NextRequest) {
 
   // Re-check seat limits at acceptance time. Between invitation creation and
   // acceptance, other seats may have been filled by other accepted invitations.
-  const seats = await canInviteMember(invitation.business_id);
-  if (!seats.allowed) {
+  const seats = await canInviteMember(invitation.business_id, supabase);
+  // Seat counting includes pending invitations. During acceptance, the current
+  // invite is still pending, so "used === limit" is valid and should pass.
+  if (!seats.allowed && seats.used > seats.limit) {
     return NextResponse.json(
       {
         error: `This business has reached its seat limit (${seats.used}/${seats.limit}). Please ask the business owner to upgrade their plan.`,

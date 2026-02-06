@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("ii_recall_matches")
-    .select("*, ii_recall_checks(receipt_item_id, checked_at)")
+    .select("*, ii_recall_checks(status, checked_at, match_count)")
     .eq("business_id", membership.business_id)
     .order("matched_at", { ascending: false });
 

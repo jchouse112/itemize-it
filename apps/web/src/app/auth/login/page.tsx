@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { pickSafeRedirectPath } from "@/lib/redirect";
 import Link from "next/link";
 import { LogIn, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
 
@@ -33,6 +34,10 @@ function LoginForm() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    const nextPath = pickSafeRedirectPath([
+      searchParams?.get("next"),
+      searchParams?.get("redirect"),
+    ]);
 
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({
@@ -46,7 +51,7 @@ function LoginForm() {
       return;
     }
 
-    window.location.href = "/app/dashboard";
+    window.location.href = nextPath;
   }
 
   return (

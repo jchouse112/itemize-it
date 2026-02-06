@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Shield, Package, AlertTriangle, Loader2 } from "lucide-react";
+import Link from "next/link";
 import WarrantyCard from "@/components/app/WarrantyCard";
 import ReturnDeadline from "@/components/app/ReturnDeadline";
 import RecallAlert from "@/components/app/RecallAlert";
@@ -15,11 +16,22 @@ type ReturnWithReceipt = IIReturn & {
   ii_receipts?: { merchant: string | null; purchase_date: string | null } | null;
 };
 
+type PendingWarrantyItem = {
+  id: string;
+  receipt_id: string;
+  name: string;
+  total_price_cents: number;
+  warranty_lookup_status: "unknown" | "in_progress" | "found" | "not_found" | "error" | "not_eligible";
+  warranty_checked_at: string | null;
+  ii_receipts?: { merchant: string | null; purchase_date: string | null } | null;
+};
+
 type Tab = "warranties" | "returns" | "recalls";
 
 export default function LifecyclePage() {
   const [activeTab, setActiveTab] = useState<Tab>("warranties");
   const [warranties, setWarranties] = useState<WarrantyWithReceipt[]>([]);
+  const [pendingWarrantyItems, setPendingWarrantyItems] = useState<PendingWarrantyItem[]>([]);
   const [returns, setReturns] = useState<ReturnWithReceipt[]>([]);
   const [recalls, setRecalls] = useState<IIRecallMatch[]>([]);
   const [loadingTab, setLoadingTab] = useState<Tab | null>("warranties");
@@ -35,8 +47,12 @@ export default function LifecyclePage() {
     try {
       switch (tab) {
         case "warranties": {
-          const res = await fetch("/api/warranties");
-          if (res.ok) setWarranties(await res.json());
+          const [warrantyRes, pendingRes] = await Promise.all([
+            fetch("/api/warranties"),
+            fetch("/api/warranties/pending-items"),
+          ]);
+          if (warrantyRes.ok) setWarranties(await warrantyRes.json());
+          if (pendingRes.ok) setPendingWarrantyItems(await pendingRes.json());
           break;
         }
         case "returns": {
@@ -91,7 +107,7 @@ export default function LifecyclePage() {
   const isLoading = loadingTab === activeTab;
 
   const tabs: { key: Tab; label: string; icon: typeof Shield; count: number }[] = [
-    { key: "warranties", label: "Warranties", icon: Shield, count: warranties.length },
+    { key: "warranties", label: "Warranties", icon: Shield, count: warranties.length + pendingWarrantyItems.length },
     { key: "returns", label: "Returns", icon: Package, count: returns.filter((r) => r.status === "eligible").length },
     { key: "recalls", label: "Recalls", icon: AlertTriangle, count: recalls.length },
   ];
@@ -145,11 +161,46 @@ export default function LifecyclePage() {
         <div className="space-y-3">
           {activeTab === "warranties" && (
             <>
+              {pendingWarrantyItems.length > 0 && (
+                <div className="bg-gunmetal border border-edge-steel rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-white">Needs Warranty Check</h3>
+                    <span className="text-xs text-concrete">{pendingWarrantyItems.length} items</span>
+                  </div>
+                  <div className="space-y-2">
+                    {pendingWarrantyItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between border border-edge-steel/70 rounded-lg px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-white truncate">{item.name}</p>
+                          <p className="text-xs text-concrete">
+                            {item.ii_receipts?.merchant ?? "Unknown merchant"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] px-2 py-0.5 rounded bg-edge-steel text-concrete capitalize">
+                            {item.warranty_lookup_status.replace("_", " ")}
+                          </span>
+                          <Link
+                            href={`/app/receipts/${item.receipt_id}`}
+                            className="text-xs text-safety-orange hover:underline"
+                          >
+                            Open item
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {warranties.length === 0 ? (
                 <EmptyState
                   icon={Shield}
                   title="No warranties yet"
-                  description="Warranties are automatically created when you upload receipts from recognized retailers."
+                  description="Run a warranty check from a receipt item to start tracking coverage."
                 />
               ) : (
                 warranties.map((w) => <WarrantyCard key={w.id} warranty={w} />)

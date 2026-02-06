@@ -5,6 +5,7 @@ import { ExtractionResultSchema, type ValidatedExtractionResult } from "@/lib/va
 import { receiptFingerprint } from "@/lib/ii-utils";
 import { log } from "@/lib/logger";
 import { detectWarrantyWithFallback } from "@/lib/lifecycle/warranty-heuristics";
+import { assessWarrantyEligibility } from "@/lib/lifecycle/warranty-eligibility";
 import { checkReceiptRecalls } from "@/lib/lifecycle/recalls/check-receipt-recalls";
 
 const OPENAI_TIMEOUT_MS = 60_000; // 60 seconds
@@ -94,6 +95,8 @@ function generateSuggestedNote(
 const OPENAI_MAX_RETRIES = 3;
 const OPENAI_RETRY_BASE_MS = 1_000; // 1s, 2s, 4s exponential backoff
 const MAX_FILE_SIZE_FOR_EXTRACTION = 10 * 1024 * 1024; // 10MB after download
+const AUTO_CREATE_WARRANTY_ON_INGEST =
+  process.env.AUTO_CREATE_WARRANTY_ON_INGEST === "true";
 
 // ============================================
 // Concurrency limiter for OpenAI calls
@@ -335,7 +338,7 @@ export async function POST(request: NextRequest) {
     //     photos of the same receipt (e.g., re-photographed or forwarded email).
     const fingerprint = receiptFingerprint(
       extractedData.merchant,
-      extractedData.purchase_date,
+      sanitizedDate,
       extractedData.total_cents
     );
 
@@ -382,23 +385,38 @@ export async function POST(request: NextRequest) {
     //    and mark the receipt for manual review so it doesn't show
     //    inconsistent data.
     if (extractedData.items.length > 0) {
-      const itemRows = extractedData.items.map((item) => ({
-        receipt_id: receiptId,
-        business_id: businessId,
-        user_id: userId,
-        name: item.name,
-        description: item.description,
-        quantity: item.quantity,
-        unit_price_cents: item.unit_price_cents,
-        total_price_cents: item.total_price_cents,
-        tax_cents: item.tax_cents,
-        classification: "unclassified" as const,
-        classification_confidence: item.confidence,
-        review_reasons:
-          item.confidence != null && item.confidence < 0.7
-            ? ["low_confidence"]
-            : [],
-      }));
+      const itemRows = extractedData.items.map((item) => {
+        const eligibility = assessWarrantyEligibility({
+          itemName: item.name,
+          description: item.description,
+          merchant: extractedData.merchant,
+          totalPriceCents: item.total_price_cents,
+        });
+
+        return {
+          receipt_id: receiptId,
+          business_id: businessId,
+          user_id: userId,
+          name: item.name,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price_cents: item.unit_price_cents,
+          total_price_cents: item.total_price_cents,
+          tax_cents: item.tax_cents,
+          classification: "unclassified" as const,
+          classification_confidence: item.confidence,
+          review_reasons:
+            item.confidence != null && item.confidence < 0.7
+              ? ["low_confidence"]
+              : [],
+          warranty_eligible: eligibility.eligible,
+          warranty_eligibility_reason: eligibility.reason,
+          track_warranty: eligibility.eligible,
+          warranty_lookup_status: eligibility.eligible
+            ? ("unknown" as const)
+            : ("not_eligible" as const),
+        };
+      });
 
       const { error: insertItemsError } = await supabase
         .from("ii_receipt_items")
@@ -576,11 +594,14 @@ export async function POST(request: NextRequest) {
 
     // 7. Auto-create warranty records from extraction data
     let warrantiesCreated = 0;
-    if (extractedData.merchant && extractedData.purchase_date) {
+    if (AUTO_CREATE_WARRANTY_ON_INGEST && extractedData.merchant && sanitizedDate) {
       const warrantyResult = detectWarrantyWithFallback({
         merchant: extractedData.merchant,
-        purchaseDate: extractedData.purchase_date,
-        total: extractedData.total_cents,
+        purchaseDate: sanitizedDate,
+        total:
+          extractedData.total_cents != null
+            ? extractedData.total_cents / 100
+            : null,
       });
 
       if (warrantyResult) {

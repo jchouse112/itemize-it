@@ -28,17 +28,13 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Check if user already has a business (e.g. phantom record from a
-    // previously-removed auto-create trigger). If so, update it instead
-    // of inserting a duplicate.
-    const { data: existing } = await supabase
-      .from("businesses")
-      .select("id")
-      .eq("owner_id", user.id)
-      .limit(1)
-      .single();
+    // Prefer the current membership-selected business. If none exists, create
+    // a new business (which auto-creates owner membership via DB trigger).
+    const { data: existingBusinessId } = await supabase.rpc(
+      "get_user_business_id"
+    );
 
-    if (existing) {
+    if (existingBusinessId) {
       const { error: updateError } = await supabase
         .from("businesses")
         .update({
@@ -46,7 +42,7 @@ export default function OnboardingPage() {
           business_type: businessType,
           default_currency: currency,
         })
-        .eq("id", existing.id);
+        .eq("id", existingBusinessId);
 
       if (updateError) {
         setError(updateError.message);
@@ -66,8 +62,7 @@ export default function OnboardingPage() {
         setLoading(false);
         return;
       }
-      // The on_business_created DB trigger auto-creates the business_members
-      // row for the owner (only fires on INSERT, not UPDATE).
+      // The on_business_created DB trigger auto-creates the business_members row.
     }
 
     window.location.href = "/app/dashboard";
