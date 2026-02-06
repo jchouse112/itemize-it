@@ -29,6 +29,8 @@ const ExportQuerySchema = z
 const EXPORT_RECEIPT_LIMIT = 500;
 /** Maximum receipt images to include in a single ZIP */
 const MAX_IMAGES_PER_PACK = 200;
+/** Max concurrent Storage downloads for accountant pack images */
+const IMAGE_DOWNLOAD_CONCURRENCY = 6;
 
 /**
  * POST /api/exports/accountant-pack
@@ -157,48 +159,49 @@ export async function POST(request: NextRequest) {
 
   // 2. Download receipt images and add to ZIP
   const imagesFolder = zip.folder("receipts");
-  let imageCount = 0;
+  const receiptsWithImages = filteredReceipts.filter((r) => !!r.storage_key);
+  const receiptsToDownload = receiptsWithImages.slice(0, MAX_IMAGES_PER_PACK);
+  const imagesSkipped = Math.max(receiptsWithImages.length - receiptsToDownload.length, 0);
 
-  let imagesSkipped = 0;
+  const imageResults = await mapWithConcurrency(
+    receiptsToDownload,
+    IMAGE_DOWNLOAD_CONCURRENCY,
+    async (receipt) => {
+      try {
+        const storageKey = receipt.storage_key!;
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from("receipts")
+          .download(storageKey);
 
-  for (const receipt of filteredReceipts) {
-    if (!receipt.storage_key) continue;
+        if (downloadError || !fileData) {
+          log.warn("Failed to download receipt image for accountant pack", {
+            receiptId: receipt.id,
+            storageKey,
+          });
+          return false;
+        }
 
-    if (imageCount >= MAX_IMAGES_PER_PACK) {
-      imagesSkipped++;
-      continue;
-    }
+        const ext = storageKey.split(".").pop() ?? "jpg";
+        const dateStr = receipt.purchase_date ?? "unknown-date";
+        const merchant = (receipt.merchant ?? "unknown")
+          .replace(/[^a-zA-Z0-9-_ ]/g, "")
+          .slice(0, 50);
+        const filename = `${dateStr}_${merchant}_${receipt.id.slice(0, 8)}.${ext}`;
 
-    try {
-      const { data: fileData, error: downloadError } = await supabase.storage
-        .from("receipts")
-        .download(receipt.storage_key);
-
-      if (downloadError || !fileData) {
-        log.warn("Failed to download receipt image for accountant pack", {
+        const buffer = await fileData.arrayBuffer();
+        imagesFolder?.file(filename, buffer);
+        return true;
+      } catch (err) {
+        log.warn("Error downloading receipt image", {
           receiptId: receipt.id,
-          storageKey: receipt.storage_key,
+          error: err instanceof Error ? err.message : "Unknown",
         });
-        continue;
+        return false;
       }
-
-      const ext = receipt.storage_key.split(".").pop() ?? "jpg";
-      const dateStr = receipt.purchase_date ?? "unknown-date";
-      const merchant = (receipt.merchant ?? "unknown")
-        .replace(/[^a-zA-Z0-9-_ ]/g, "")
-        .slice(0, 50);
-      const filename = `${dateStr}_${merchant}_${receipt.id.slice(0, 8)}.${ext}`;
-
-      const buffer = await fileData.arrayBuffer();
-      imagesFolder!.file(filename, buffer);
-      imageCount++;
-    } catch (err) {
-      log.warn("Error downloading receipt image", {
-        receiptId: receipt.id,
-        error: err instanceof Error ? err.message : "Unknown",
-      });
     }
-  }
+  );
+
+  const imageCount = imageResults.filter(Boolean).length;
 
   // 3. Generate plain text summary
   const summary = buildSummary(filteredReceipts, dateFrom, dateTo, imageCount, imagesSkipped);
@@ -347,9 +350,9 @@ function buildCSV(receipts: ExportReceipt[]): string {
     for (const item of receipt.ii_receipt_items) {
       rows.push([
         receipt.purchase_date ?? "",
-        receipt.merchant ?? "",
-        item.name,
-        item.description ?? "",
+        sanitizeForSpreadsheet(receipt.merchant ?? ""),
+        sanitizeForSpreadsheet(item.name),
+        sanitizeForSpreadsheet(item.description ?? ""),
         String(item.quantity),
         centsToStr(item.unit_price_cents),
         centsToStr(item.total_price_cents),
@@ -358,11 +361,11 @@ function buildCSV(receipts: ExportReceipt[]): string {
         item.tax_rate != null ? String(item.tax_rate) : "",
         item.tax_calculation_method ?? "",
         item.classification,
-        item.category ?? "",
-        item.tax_category ?? "",
+        sanitizeForSpreadsheet(item.category ?? ""),
+        sanitizeForSpreadsheet(item.tax_category ?? ""),
         receipt.payment_method ?? "",
         receipt.payment_source ?? "",
-        item.notes ?? "",
+        sanitizeForSpreadsheet(item.notes ?? ""),
         receipt.id,
         item.id,
       ]);
@@ -452,4 +455,40 @@ function escapeCSV(value: string): string {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
+}
+
+/**
+ * Prevent CSV/Excel formula injection when exported files are opened in
+ * spreadsheet tools.
+ */
+function sanitizeForSpreadsheet(value: string): string {
+  if (/^[\t\r ]*[=+\-@]/.test(value)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    async () => {
+      while (true) {
+        const current = nextIndex++;
+        if (current >= items.length) return;
+        results[current] = await worker(items[current], current);
+      }
+    }
+  );
+
+  await Promise.all(runners);
+  return results;
 }

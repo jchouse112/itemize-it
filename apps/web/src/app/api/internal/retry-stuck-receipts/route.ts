@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { log } from "@/lib/logger";
+import { getProcessReceiptUrl } from "@/lib/internal-api";
 
 /**
  * POST /api/internal/retry-stuck-receipts
@@ -43,6 +44,19 @@ export async function POST(request: NextRequest) {
     parseInt(url.searchParams.get("limit") ?? String(DEFAULT_BATCH_LIMIT), 10) || DEFAULT_BATCH_LIMIT,
     MAX_BATCH_LIMIT
   );
+
+  let processUrl: URL;
+  try {
+    processUrl = getProcessReceiptUrl();
+  } catch (err) {
+    log.error("Internal API base URL is not configured correctly", {
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 500 }
+    );
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -98,7 +112,6 @@ export async function POST(request: NextRequest) {
   }
 
   // Re-trigger extraction for each stuck receipt
-  const processUrl = new URL("/api/internal/process-receipt", request.url);
   const results = await Promise.allSettled(
     stuckReceipts.map(async (receipt) => {
       const res = await fetch(processUrl.toString(), {

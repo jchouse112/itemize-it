@@ -27,6 +27,31 @@ interface StatCardProps {
   color: string;
 }
 
+interface DashboardMetricsRpcRow {
+  total_receipts: number | string | null;
+  pending_receipts: number | string | null;
+  total_spend_cents: number | string | null;
+  business_spend_cents: number | string | null;
+  business_items: number | string | null;
+  material_cents: number | string | null;
+  labour_cents: number | string | null;
+  overhead_cents: number | string | null;
+  personal_spend_cents: number | string | null;
+  personal_items: number | string | null;
+  unclassified_spend_cents: number | string | null;
+  unclassified_items: number | string | null;
+}
+
+interface DashboardTopProjectRpcRow {
+  id: string;
+  name: string;
+  budget_cents: number | null;
+  material_target_percent: number | null;
+  spend_cents: number | string | null;
+  material_cents: number | string | null;
+  labour_cents: number | string | null;
+}
+
 function StatCard({ label, value, subtext, icon, color }: StatCardProps) {
   return (
     <div className="bg-gunmetal border border-edge-steel rounded-xl p-5">
@@ -73,124 +98,49 @@ export default async function DashboardPage() {
     (membership.businesses as unknown as { default_currency: string })
       ?.default_currency ?? "USD";
 
-  // Parallelize all dashboard queries
+  // Use DB-side aggregate RPCs to avoid loading large item/receipt datasets.
   const [
-    { count: totalReceipts },
-    { count: pendingReceipts },
-    { data: spendData },
-    { data: businessItemsData },
-    { data: personalItemsData },
-    { data: unclassifiedItemsData },
-    { data: projectsData },
-    { data: projectItemsData },
+    { data: metrics, error: metricsError },
+    { data: topProjectsData, error: topProjectsError },
   ] = await Promise.all([
     supabase
-      .from("ii_receipts")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", businessId),
+      .rpc("get_ii_dashboard_metrics", { p_business_id: businessId })
+      .single(),
     supabase
-      .from("ii_receipts")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", businessId)
-      .in("status", ["pending", "in_review"]),
-    supabase
-      .from("ii_receipts")
-      .select("total_cents")
-      .eq("business_id", businessId)
-      .eq("status", "complete"),
-    supabase
-      .from("ii_receipt_items")
-      .select("total_price_cents, expense_type")
-      .eq("business_id", businessId)
-      .eq("classification", "business"),
-    supabase
-      .from("ii_receipt_items")
-      .select("total_price_cents")
-      .eq("business_id", businessId)
-      .eq("classification", "personal"),
-    supabase
-      .from("ii_receipt_items")
-      .select("total_price_cents")
-      .eq("business_id", businessId)
-      .eq("classification", "unclassified"),
-    supabase
-      .from("ii_projects")
-      .select("id, name, status, budget_cents, material_target_percent")
-      .eq("business_id", businessId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("ii_receipt_items")
-      .select("project_id, total_price_cents, classification, expense_type")
-      .eq("business_id", businessId)
-      .not("project_id", "is", null),
+      .rpc("get_ii_dashboard_top_projects", {
+        p_business_id: businessId,
+        p_limit: 5,
+      }),
   ]);
 
-  const totalSpendCents =
-    spendData?.reduce((sum, r) => sum + (r.total_cents ?? 0), 0) ?? 0;
-
-  const businessSpendCents =
-    businessItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-  const businessItems = businessItemsData?.length ?? 0;
-
-  // Expense type breakdowns (within business items)
-  const materialCents =
-    businessItemsData
-      ?.filter((i) => i.expense_type === "material")
-      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-  const labourCents =
-    businessItemsData
-      ?.filter((i) => i.expense_type === "labour")
-      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-  const overheadCents =
-    businessItemsData
-      ?.filter((i) => i.expense_type === "overhead")
-      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-
-  const personalSpendCents =
-    personalItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-  const personalItems = personalItemsData?.length ?? 0;
-
-  const unclassifiedSpendCents =
-    unclassifiedItemsData?.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0) ?? 0;
-  const unclassifiedItems = unclassifiedItemsData?.length ?? 0;
-
-  // Aggregate spend by project (total, material, labour)
-  const projectSpendMap = new Map<string, number>();
-  const projectMaterialMap = new Map<string, number>();
-  const projectLabourMap = new Map<string, number>();
-  for (const item of projectItemsData ?? []) {
-    if (item.project_id) {
-      projectSpendMap.set(
-        item.project_id,
-        (projectSpendMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
-      );
-      if (item.classification === "business") {
-        if (item.expense_type === "material") {
-          projectMaterialMap.set(
-            item.project_id,
-            (projectMaterialMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
-          );
-        } else if (item.expense_type === "labour") {
-          projectLabourMap.set(
-            item.project_id,
-            (projectLabourMap.get(item.project_id) ?? 0) + (item.total_price_cents ?? 0)
-          );
-        }
-      }
-    }
+  if (metricsError) {
+    console.error("Failed to load dashboard metrics:", metricsError.message);
+  }
+  if (topProjectsError) {
+    console.error("Failed to load top projects:", topProjectsError.message);
   }
 
-  const topProjects = (projectsData ?? [])
-    .map((p) => ({
-      ...p,
-      spendCents: projectSpendMap.get(p.id) ?? 0,
-      materialCents: projectMaterialMap.get(p.id) ?? 0,
-      labourCents: projectLabourMap.get(p.id) ?? 0,
-    }))
-    .sort((a, b) => b.spendCents - a.spendCents)
-    .slice(0, 5);
+  const metricsRow = (metrics as DashboardMetricsRpcRow | null) ?? null;
+
+  const totalReceipts = Number(metricsRow?.total_receipts ?? 0);
+  const pendingReceipts = Number(metricsRow?.pending_receipts ?? 0);
+  const totalSpendCents = Number(metricsRow?.total_spend_cents ?? 0);
+  const businessSpendCents = Number(metricsRow?.business_spend_cents ?? 0);
+  const businessItems = Number(metricsRow?.business_items ?? 0);
+  const materialCents = Number(metricsRow?.material_cents ?? 0);
+  const labourCents = Number(metricsRow?.labour_cents ?? 0);
+  const overheadCents = Number(metricsRow?.overhead_cents ?? 0);
+  const personalSpendCents = Number(metricsRow?.personal_spend_cents ?? 0);
+  const personalItems = Number(metricsRow?.personal_items ?? 0);
+  const unclassifiedSpendCents = Number(metricsRow?.unclassified_spend_cents ?? 0);
+  const unclassifiedItems = Number(metricsRow?.unclassified_items ?? 0);
+
+  const topProjects = ((topProjectsData as DashboardTopProjectRpcRow[] | null) ?? []).map((project) => ({
+    ...project,
+    spendCents: Number(project.spend_cents ?? 0),
+    materialCents: Number(project.material_cents ?? 0),
+    labourCents: Number(project.labour_cents ?? 0),
+  }));
 
   return (
     <div>

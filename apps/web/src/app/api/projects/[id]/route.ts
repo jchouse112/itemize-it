@@ -12,6 +12,14 @@ const UpdateProjectSchema = z.object({
   status: z.enum(["active", "completed", "archived"]).optional(),
 });
 
+interface ProjectStatsRpcRow {
+  item_count: number | string | null;
+  total_cents: number | string | null;
+  business_cents: number | string | null;
+  material_cents: number | string | null;
+  labour_cents: number | string | null;
+}
+
 /** GET /api/projects/[id] — Get a single project with its items (paginated) */
 export async function GET(
   request: NextRequest,
@@ -60,35 +68,31 @@ export async function GET(
   const [itemsResult, statsResult] = await Promise.all([
     supabase
       .from("ii_receipt_items")
-      .select("*, ii_receipts(merchant, purchase_date, currency)", {
-        count: "exact",
-      })
+      .select("*, ii_receipts(merchant, purchase_date, currency)")
       .eq("project_id", id)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1),
     supabase
-      .from("ii_receipt_items")
-      .select("total_price_cents, classification, expense_type")
-      .eq("project_id", id),
+      .rpc("get_ii_project_stats", { p_project_id: id })
+      .single(),
   ]);
 
   const items = itemsResult.data ?? [];
-  const itemCount = itemsResult.count ?? 0;
-  const statsItems = statsResult.data ?? [];
-
-  const totalCents =
-    statsItems.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
-  const businessItems = statsItems.filter((i) => i.classification === "business");
-  const businessCents =
-    businessItems.reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
-  const materialCents =
-    businessItems
-      .filter((i) => i.expense_type === "material")
-      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
-  const labourCents =
-    businessItems
-      .filter((i) => i.expense_type === "labour")
-      .reduce((sum, i) => sum + (i.total_price_cents ?? 0), 0);
+  if (statsResult.error) {
+    console.error("Failed to aggregate project stats:", statsResult.error.message);
+  }
+  const stats: ProjectStatsRpcRow = (statsResult.data as ProjectStatsRpcRow | null) ?? {
+    item_count: 0,
+    total_cents: 0,
+    business_cents: 0,
+    material_cents: 0,
+    labour_cents: 0,
+  };
+  const itemCount = Number(stats.item_count ?? 0);
+  const totalCents = Number(stats.total_cents ?? 0);
+  const businessCents = Number(stats.business_cents ?? 0);
+  const materialCents = Number(stats.material_cents ?? 0);
+  const labourCents = Number(stats.labour_cents ?? 0);
 
   return NextResponse.json({
     project: {

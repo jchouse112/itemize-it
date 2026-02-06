@@ -4,6 +4,7 @@ import { IngestEmailSchema } from "@/lib/validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getReceiptCountThisMonth } from "@/lib/plan-gate";
 import { log } from "@/lib/logger";
+import { getProcessReceiptUrl } from "@/lib/internal-api";
 
 /** Per-source rate limit for inbound email processing */
 const INGEST_RATE_LIMIT = { limit: 30, windowMs: 60_000 }; // 30 emails/min per source
@@ -69,6 +70,19 @@ export async function POST(request: NextRequest) {
     authHeader !== `Bearer ${expectedSecret}`
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let processUrl: URL;
+  try {
+    processUrl = getProcessReceiptUrl();
+  } catch (err) {
+    log.error("Internal API base URL is not configured correctly", {
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 500 }
+    );
   }
 
   // Parse and validate payload
@@ -344,8 +358,6 @@ export async function POST(request: NextRequest) {
   }
 
   // 6b. Fire all extraction triggers concurrently
-  const processUrl = new URL("/api/internal/process-receipt", request.url);
-
   const extractionResults = await Promise.allSettled(
     receiptEntries.map(async (entry) => {
       const res = await fetch(processUrl.toString(), {

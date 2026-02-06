@@ -5,9 +5,23 @@ import { MAX_FILE_SIZE_BYTES } from "@/lib/constants";
 import { validateFileContent } from "@/lib/validation";
 import { canUploadReceipt } from "@/lib/plan-gate";
 import { log } from "@/lib/logger";
+import { getProcessReceiptUrl } from "@/lib/internal-api";
 
 /** POST /api/receipts — Upload a receipt file and create the ii_receipts record */
 export async function POST(request: NextRequest) {
+  let processUrl: URL;
+  try {
+    processUrl = getProcessReceiptUrl();
+  } catch (err) {
+    log.error("Internal API base URL is not configured correctly", {
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+    return NextResponse.json(
+      { error: "Server configuration error. Please contact support." },
+      { status: 500 }
+    );
+  }
+
   // Fail fast if the internal API secret isn't configured — without it we
   // cannot authenticate the call to /api/internal/process-receipt and the
   // upload would silently skip extraction.
@@ -209,7 +223,6 @@ export async function POST(request: NextRequest) {
   // We intentionally don't await the full processing, but we DO await the
   // initial fetch to ensure the request was accepted. This catches network
   // errors and server-down scenarios that a fire-and-forget would miss.
-  const processUrl = new URL("/api/internal/process-receipt", request.url);
   const processPayload = JSON.stringify({
     receiptRawId: receipt.id,
     userId,

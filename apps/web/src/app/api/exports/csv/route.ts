@@ -171,9 +171,9 @@ export async function POST(request: NextRequest) {
 
     rows.push([
       receipt.purchase_date ?? "",
-      receipt.merchant ?? "",
-      item.name,
-      item.description ?? "",
+      sanitizeForSpreadsheet(receipt.merchant ?? ""),
+      sanitizeForSpreadsheet(item.name),
+      sanitizeForSpreadsheet(item.description ?? ""),
       String(item.quantity),
       formatCentsCSV(item.unit_price_cents),
       formatCentsCSV(item.total_price_cents),
@@ -183,11 +183,11 @@ export async function POST(request: NextRequest) {
       item.tax_calculation_method ?? "",
       item.classification,
       item.expense_type ?? "",
-      item.category ?? "",
-      item.tax_category ?? "",
+      sanitizeForSpreadsheet(item.category ?? ""),
+      sanitizeForSpreadsheet(item.tax_category ?? ""),
       receipt.payment_method ?? "",
       receipt.payment_source ?? "",
-      item.notes ?? "",
+      sanitizeForSpreadsheet(item.notes ?? ""),
       item.receipt_id,
       item.id,
     ]);
@@ -283,6 +283,17 @@ function formatCentsCSV(cents: number | null): string {
 function escapeCSV(value: string): string {
   if (value.includes(",") || value.includes('"') || value.includes("\n")) {
     return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Prevent CSV/Excel formula injection when exported files are opened in
+ * spreadsheet tools.
+ */
+function sanitizeForSpreadsheet(value: string): string {
+  if (/^[\t\r ]*[=+\-@]/.test(value)) {
+    return `'${value}`;
   }
   return value;
 }

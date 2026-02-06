@@ -30,112 +30,22 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
+/**
+ * Provider-injected client-IP headers that are set/overwritten at the edge.
+ * We intentionally do NOT trust generic forwarding headers like x-forwarded-for.
+ */
+const TRUSTED_IP_HEADERS = [
+  "cf-connecting-ip",        // Cloudflare
+  "x-vercel-forwarded-for",  // Vercel
+  "fly-client-ip",           // Fly.io
+  "fastly-client-ip",        // Fastly
+  "x-azure-clientip",        // Azure Front Door / App Gateway
+  "x-nf-client-connection-ip", // Netlify
+] as const;
+
 export async function middleware(request: NextRequest) {
   // ------------------------------------------
-  // 1. Rate-limit API routes
-  // ------------------------------------------
-  // Skip rate limiting for webhook endpoints — these are called by external
-  // services (Stripe) with their own retry logic. Rate-limiting them could
-  // cause missed events and broken subscription syncs.
-  const isWebhook = request.nextUrl.pathname.startsWith("/api/webhooks/");
-
-  if (request.nextUrl.pathname.startsWith("/api/") && !isWebhook) {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "unknown";
-
-    const isMutation = ["POST", "PATCH", "PUT", "DELETE"].includes(
-      request.method
-    );
-    const isUpload =
-      isMutation &&
-      request.method === "POST" &&
-      request.nextUrl.pathname === "/api/receipts";
-    const isAlias =
-      isMutation &&
-      request.method === "POST" &&
-      request.nextUrl.pathname === "/api/email-alias";
-
-    const config = isAlias
-      ? RATE_LIMITS.alias
-      : isUpload
-        ? RATE_LIMITS.upload
-        : isMutation
-          ? RATE_LIMITS.mutate
-          : RATE_LIMITS.read;
-
-    const tier = isAlias
-      ? "alias"
-      : isUpload
-        ? "upload"
-        : isMutation
-          ? "mutate"
-          : "read";
-
-    // Always check IP-level limit
-    const ipKey = `ip:${ip}:${tier}`;
-    const ipResult = checkRateLimit(ipKey, config);
-
-    if (!ipResult.allowed) {
-      return withSecurityHeaders(
-        NextResponse.json(
-          { error: "Too many requests. Please try again later." },
-          {
-            status: 429,
-            headers: {
-              "Retry-After": String(
-                Math.ceil((ipResult.retryAfterMs ?? config.windowMs) / 1000)
-              ),
-            },
-          }
-        )
-      );
-    }
-
-    // Also check per-user limit when we can extract a user ID from the
-    // Supabase session cookie. This prevents a single authenticated user
-    // from consuming the entire IP budget (important for shared-IP
-    // environments like offices or VPNs).
-    const sbAccessToken = request.cookies.get("sb-access-token")?.value
-      ?? request.cookies.get(
-           // Supabase uses a project-ref-prefixed cookie name
-           Array.from(request.cookies.getAll().map((c) => c.name))
-             .find((n) => n.startsWith("sb-") && n.endsWith("-auth-token")) ?? ""
-         )?.value;
-
-    if (sbAccessToken) {
-      // Extract the sub (user id) from the JWT payload without full
-      // verification — we only need it as a rate-limit key, not for auth.
-      // Auth verification happens later in each API route.
-      const userId = extractJwtSub(sbAccessToken);
-      if (userId) {
-        const userKey = `user:${userId}:${tier}`;
-        const userResult = checkRateLimit(userKey, config);
-
-        if (!userResult.allowed) {
-          return withSecurityHeaders(
-            NextResponse.json(
-              { error: "Too many requests. Please try again later." },
-              {
-                status: 429,
-                headers: {
-                  "Retry-After": String(
-                    Math.ceil(
-                      (userResult.retryAfterMs ?? config.windowMs) / 1000
-                    )
-                  ),
-                },
-              }
-            )
-          );
-        }
-      }
-    }
-  }
-
-  // ------------------------------------------
-  // 2. Supabase auth session refresh
+  // 1. Supabase auth session refresh
   // ------------------------------------------
   let supabaseResponse = NextResponse.next({
     request,
@@ -174,6 +84,89 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // ------------------------------------------
+  // 2. Rate-limit API routes
+  // ------------------------------------------
+  // Skip rate limiting for webhook endpoints — these are called by external
+  // services (Stripe) with their own retry logic. Rate-limiting them could
+  // cause missed events and broken subscription syncs.
+  const isWebhook = request.nextUrl.pathname.startsWith("/api/webhooks/");
+
+  if (request.nextUrl.pathname.startsWith("/api/") && !isWebhook) {
+    const ip = getTrustedClientIp(request) ?? "unknown";
+
+    const isMutation = ["POST", "PATCH", "PUT", "DELETE"].includes(
+      request.method
+    );
+    const isUpload =
+      isMutation &&
+      request.method === "POST" &&
+      request.nextUrl.pathname === "/api/receipts";
+    const isAlias =
+      isMutation &&
+      request.method === "POST" &&
+      request.nextUrl.pathname === "/api/email-alias";
+
+    const config = isAlias
+      ? RATE_LIMITS.alias
+      : isUpload
+        ? RATE_LIMITS.upload
+        : isMutation
+          ? RATE_LIMITS.mutate
+          : RATE_LIMITS.read;
+
+    const tier = isAlias
+      ? "alias"
+      : isUpload
+        ? "upload"
+        : isMutation
+          ? "mutate"
+          : "read";
+
+    // Always enforce IP-level rate limits using trusted edge-provided IP only.
+    const ipKey = `ip:${ip}:${tier}`;
+    const ipResult = checkRateLimit(ipKey, config);
+    if (!ipResult.allowed) {
+      return withSecurityHeaders(
+        NextResponse.json(
+          { error: "Too many requests. Please try again later." },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(
+                Math.ceil((ipResult.retryAfterMs ?? config.windowMs) / 1000)
+              ),
+            },
+          }
+        )
+      );
+    }
+
+    // Enforce per-user limits only from a verified Supabase identity.
+    if (user?.id) {
+      const userKey = `user:${user.id}:${tier}`;
+      const userResult = checkRateLimit(userKey, config);
+
+      if (!userResult.allowed) {
+        return withSecurityHeaders(
+          NextResponse.json(
+            { error: "Too many requests. Please try again later." },
+            {
+              status: 429,
+              headers: {
+                "Retry-After": String(
+                  Math.ceil(
+                    (userResult.retryAfterMs ?? config.windowMs) / 1000
+                  )
+                ),
+              },
+            }
+          )
+        );
+      }
+    }
+  }
 
   // ------------------------------------------
   // 3. Route protection
@@ -221,40 +214,30 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
 }
 
 /**
- * Extract the `sub` claim from a JWT without cryptographic verification.
- * We only use this as a rate-limit key — actual auth verification happens
- * downstream in each API route via Supabase's getUser().
- *
- * Returns null if the token is malformed or missing a sub claim.
+ * Read client IP from provider-managed headers only.
+ * Returns null when no trusted header is available.
  */
-function extractJwtSub(token: string): string | null {
-  try {
-    // JWT structure: header.payload.signature
-    // The Supabase auth token may be a raw JWT or a JSON-encoded
-    // string containing "access_token".
-    let jwt = token;
+function getTrustedClientIp(request: NextRequest): string | null {
+  for (const headerName of TRUSTED_IP_HEADERS) {
+    const rawValue = request.headers.get(headerName);
+    if (!rawValue) continue;
 
-    // Handle the case where the cookie value is a JSON blob
-    // e.g. {"access_token":"eyJ...","...}
-    if (token.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(token);
-        jwt = parsed.access_token ?? parsed[0]?.access_token ?? token;
-      } catch {
-        // Not JSON — treat as raw JWT
-      }
+    // Some platforms provide comma-separated values; take first hop.
+    const candidate = rawValue.split(",")[0]?.trim();
+    if (candidate && isValidIp(candidate)) {
+      return candidate;
     }
-
-    const parts = jwt.split(".");
-    if (parts.length !== 3) return null;
-
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8")
-    );
-    return typeof payload.sub === "string" ? payload.sub : null;
-  } catch {
-    return null;
   }
+
+  return null;
+}
+
+function isValidIp(value: string): boolean {
+  // Strict-ish validation for IPv4 and IPv6 literals.
+  const ipv4Pattern =
+    /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+  const ipv6Pattern = /^[0-9a-fA-F:]+$/;
+  return ipv4Pattern.test(value) || (value.includes(":") && ipv6Pattern.test(value));
 }
 
 export const config = {
