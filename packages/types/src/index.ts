@@ -19,6 +19,8 @@ export type Classification = "business" | "personal" | "unclassified";
 
 export type ExpenseType = "material" | "labour" | "overhead";
 
+export type LabourType = "employee" | "subcontractor";
+
 export type PaymentMethod =
   | "cash"
   | "credit_card"
@@ -130,6 +132,7 @@ export interface IIReceiptItem {
   tax_calculation_method: TaxCalculationMethod | null;
   classification: Classification;
   expense_type: ExpenseType;
+  labour_type: LabourType | null;
   classification_confidence: number | null;
   classified_at: string | null;
   classified_by: string | null;

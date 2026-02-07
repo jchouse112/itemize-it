@@ -3,14 +3,23 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthContext } from "@/lib/supabase/auth-helpers";
 import { z } from "zod";
 
+const AllocationSchema = z.object({
+  project_id: z.string().uuid(),
+  amount_cents: z.number().int().positive(),
+});
+
 const AddExpenseSchema = z.object({
   name: z.string().min(1).max(500),
   amount_cents: z.number().int().positive(),
   merchant: z.string().max(200).nullable().optional(),
   purchase_date: z.string().nullable().optional(),
   classification: z.enum(["business", "personal", "unclassified"]).default("business"),
+  expense_type: z.enum(["material", "labour", "overhead"]).optional(),
+  labour_type: z.enum(["employee", "subcontractor"]).nullable().optional(),
   payment_method: z.enum(["cash", "credit_card", "debit_card", "check", "ach", "wire", "other"]).default("cash"),
   notes: z.string().max(2000).nullable().optional(),
+  /** Optional multi-project allocation. When provided, amounts must sum to amount_cents. */
+  allocations: z.array(AllocationSchema).min(2).max(10).optional(),
 });
 
 /**
@@ -39,9 +48,20 @@ export async function POST(
     );
   }
 
-  const { name, amount_cents, merchant, purchase_date, classification, payment_method, notes } = parsed.data;
+  const { name, amount_cents, merchant, purchase_date, classification, expense_type, labour_type, payment_method, notes, allocations } = parsed.data;
 
-  // Verify project exists and belongs to this business
+  // Validate allocations sum to total when provided
+  if (allocations) {
+    const allocSum = allocations.reduce((s, a) => s + a.amount_cents, 0);
+    if (allocSum !== amount_cents) {
+      return NextResponse.json(
+        { error: `Allocation amounts must sum to ${amount_cents} cents. Got ${allocSum}.` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Verify the URL project exists and belongs to this business
   const { data: project, error: projectError } = await supabase
     .from("ii_projects")
     .select("id, name")
@@ -54,6 +74,24 @@ export async function POST(
       { error: "Project not found" },
       { status: 404 }
     );
+  }
+
+  // Verify all allocation project IDs belong to this business
+  if (allocations) {
+    const allProjectIds = [...new Set(allocations.map((a) => a.project_id))];
+    const { data: ownedProjects } = await supabase
+      .from("ii_projects")
+      .select("id")
+      .in("id", allProjectIds)
+      .eq("business_id", businessId);
+    const ownedIds = new Set((ownedProjects ?? []).map((p) => p.id));
+    const invalid = allProjectIds.filter((pid) => !ownedIds.has(pid));
+    if (invalid.length > 0) {
+      return NextResponse.json(
+        { error: "One or more allocation project IDs do not belong to your business" },
+        { status: 403 }
+      );
+    }
   }
 
   // Get business currency
@@ -98,31 +136,58 @@ export async function POST(
     );
   }
 
-  // Create the line item
+  // Create line item(s)
   const now = new Date().toISOString();
-  const { data: item, error: itemError } = await supabase
-    .from("ii_receipt_items")
-    .insert({
-      receipt_id: receipt.id,
-      business_id: businessId,
-      user_id: userId,
-      name,
-      description: notes || null,
-      quantity: 1,
-      total_price_cents: amount_cents,
-      subtotal_cents: amount_cents,
-      tax_cents: 0,
-      classification,
-      classified_at: classification !== "unclassified" ? now : null,
-      classified_by: classification !== "unclassified" ? userId : null,
-      project_id: projectId,
-      notes: notes || null,
-    })
-    .select("*")
-    .single();
+  const resolvedExpenseType = classification === "business" ? (expense_type ?? "material") : "material";
+  const resolvedLabourType = expense_type === "labour" ? (labour_type ?? null) : null;
 
-  if (itemError || !item) {
-    console.error("Failed to create item:", itemError?.message);
+  const itemRows = allocations
+    ? allocations.map((alloc, i) => ({
+        receipt_id: receipt.id,
+        business_id: businessId,
+        user_id: userId,
+        name: allocations.length > 1 ? `${name} (${i + 1}/${allocations.length})` : name,
+        description: notes || null,
+        quantity: 1,
+        total_price_cents: alloc.amount_cents,
+        subtotal_cents: alloc.amount_cents,
+        tax_cents: 0,
+        classification,
+        expense_type: resolvedExpenseType,
+        labour_type: resolvedLabourType,
+        classified_at: classification !== "unclassified" ? now : null,
+        classified_by: classification !== "unclassified" ? userId : null,
+        project_id: alloc.project_id,
+        notes: notes || null,
+      }))
+    : [
+        {
+          receipt_id: receipt.id,
+          business_id: businessId,
+          user_id: userId,
+          name,
+          description: notes || null,
+          quantity: 1,
+          total_price_cents: amount_cents,
+          subtotal_cents: amount_cents,
+          tax_cents: 0,
+          classification,
+          expense_type: resolvedExpenseType,
+          labour_type: resolvedLabourType,
+          classified_at: classification !== "unclassified" ? now : null,
+          classified_by: classification !== "unclassified" ? userId : null,
+          project_id: projectId,
+          notes: notes || null,
+        },
+      ];
+
+  const { data: insertedItems, error: itemError } = await supabase
+    .from("ii_receipt_items")
+    .insert(itemRows)
+    .select("*");
+
+  if (itemError || !insertedItems || insertedItems.length === 0) {
+    console.error("Failed to create item(s):", itemError?.message);
     // Try to clean up the orphaned receipt
     await supabase.from("ii_receipts").delete().eq("id", receipt.id);
     return NextResponse.json(
@@ -133,7 +198,7 @@ export async function POST(
 
   return NextResponse.json({
     receipt_id: receipt.id,
-    item_id: item.id,
+    item_ids: insertedItems.map((i) => i.id),
     message: "Expense added successfully",
   });
 }

@@ -22,7 +22,7 @@ import {
 import type { IIProject, ProjectStatus, IIReceiptItem } from "@/lib/ii-types";
 import { formatCents, formatReceiptDate } from "@/lib/ii-utils";
 import {
-  getTaxExclusionText,
+  getTaxInclusionText,
   convertCents,
   isForeignCurrency,
   getExchangeRates,
@@ -120,8 +120,8 @@ export default function ProjectDetailPage() {
   // Add expense modal
   const [showAddExpense, setShowAddExpense] = useState(false);
 
-  // Tax exclusion message based on currency and province/state
-  const taxExclusionText = getTaxExclusionText(currency, provinceState);
+  // Tax inclusion message based on currency and province/state
+  const taxInclusionText = getTaxInclusionText(currency, provinceState);
 
   // Filter and sort items
   const filteredItems = useMemo(() => {
@@ -400,7 +400,7 @@ export default function ProjectDetailPage() {
                 <div className="flex-1">
                   <label className="block text-xs text-concrete mb-1">
                     Budget{" "}
-                    <span className="text-concrete/60">({taxExclusionText})</span>
+                    <span className="text-concrete/60">({taxInclusionText})</span>
                   </label>
                   <input
                     type="number"
@@ -444,7 +444,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <p className="text-xs text-concrete">
                     Budget{" "}
-                    <span className="text-concrete/60">({taxExclusionText})</span>
+                    <span className="text-concrete/60">({taxInclusionText})</span>
                   </p>
                   <p className="text-white text-sm mt-0.5 font-mono tabular-nums">
                     {project.budget_cents ? formatCents(project.budget_cents) : "—"}

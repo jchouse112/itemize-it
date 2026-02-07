@@ -88,22 +88,26 @@ export const US_STATES = [
 ] as const;
 
 /**
- * Get the tax exclusion text based on currency and province/state
+ * Get the tax inclusion text based on currency and province/state.
+ * Budget and expenses are all entered as totals incl. taxes for apples-to-apples comparison.
  */
-export function getTaxExclusionText(currency: string, provinceState?: string | null): string {
+export function getTaxInclusionText(currency: string, provinceState?: string | null): string {
   if (currency === "CAD") {
     if (provinceState) {
       const province = CANADIAN_PROVINCES.find((p) => p.value === provinceState);
       if (province) {
-        return `Excludes ${province.taxLabel}`;
+        return `incl. ${province.taxLabel}`;
       }
     }
     // Fallback for CAD without province
-    return "Excludes GST/HST/QST";
+    return "incl. GST/HST/QST";
   }
   // USD and others
-  return "Excludes sales tax";
+  return "incl. taxes";
 }
+
+/** @deprecated Use getTaxInclusionText instead */
+export const getTaxExclusionText = getTaxInclusionText;
 
 export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 

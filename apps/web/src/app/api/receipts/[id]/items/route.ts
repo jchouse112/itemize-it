@@ -7,7 +7,7 @@ const ItemUpdateSchema = z.object({
   id: z.string().uuid(),
   classification: z.enum(["business", "personal", "unclassified"]).optional(),
   expense_type: z.enum(["material", "labour", "overhead"]).optional(),
-  track_warranty: z.boolean().optional(),
+  labour_type: z.enum(["employee", "subcontractor"]).nullable().optional(),
   project_id: z.string().uuid().nullable().optional(),
   category: z.string().max(200).nullable().optional(),
   tax_category: z.string().max(200).nullable().optional(),
@@ -96,17 +96,14 @@ export async function PATCH(
 
     if (item.expense_type !== undefined) {
       data.expense_type = item.expense_type;
+      // Clear labour_type when switching away from labour
+      if (item.expense_type !== "labour") {
+        data.labour_type = null;
+      }
     }
 
-    if (item.track_warranty !== undefined) {
-      data.track_warranty = item.track_warranty;
-      if (item.track_warranty) {
-        data.warranty_eligible = true;
-        data.warranty_lookup_status = "unknown";
-        data.warranty_lookup_error = null;
-      } else {
-        data.warranty_lookup_status = "not_eligible";
-      }
+    if (item.labour_type !== undefined) {
+      data.labour_type = item.labour_type;
     }
 
     if (item.project_id !== undefined) {

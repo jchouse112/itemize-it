@@ -235,7 +235,8 @@ export default function ProjectsPage() {
           <div className="flex items-end gap-4 flex-wrap">
             <div>
               <label className="block text-xs text-concrete mb-1">
-                Budget
+                Budget{" "}
+                <span className="text-concrete/60">(incl. taxes)</span>
               </label>
               <input
                 type="number"
