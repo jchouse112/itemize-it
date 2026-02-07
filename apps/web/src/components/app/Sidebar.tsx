@@ -122,6 +122,22 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
             Provide Feedback
           </button>
 
+          <Link
+            href="/app/settings"
+            onClick={() => setMobileOpen(false)}
+            className={`
+              flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+              ${
+                pathname?.startsWith("/app/settings")
+                  ? "bg-safety-orange/10 text-safety-orange"
+                  : "text-concrete hover:text-white hover:bg-edge-steel/50"
+              }
+            `}
+          >
+            <Settings className="w-5 h-5" />
+            Settings
+          </Link>
+
           {/* Bookkeeping section */}
           <div className="pt-4 pb-2 px-3">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-concrete/40">
@@ -138,25 +154,6 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
             <ExternalLink className="w-5 h-5" />
             Connect to Brian
           </a>
-
-          {/* Settings — always last, visually separated */}
-          <div className="pt-4 mt-2 border-t border-edge-steel">
-            <Link
-              href="/app/settings"
-              onClick={() => setMobileOpen(false)}
-              className={`
-                flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                ${
-                  pathname?.startsWith("/app/settings")
-                    ? "bg-safety-orange/10 text-safety-orange"
-                    : "text-concrete hover:text-white hover:bg-edge-steel/50"
-                }
-              `}
-            >
-              <Settings className="w-5 h-5" />
-              Settings
-            </Link>
-          </div>
         </nav>
 
         {/* Footer */}
