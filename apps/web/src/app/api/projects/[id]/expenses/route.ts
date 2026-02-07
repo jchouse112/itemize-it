@@ -18,6 +18,8 @@ const AddExpenseSchema = z.object({
   labour_type: z.enum(["employee", "subcontractor"]).nullable().optional(),
   payment_method: z.enum(["cash", "credit_card", "debit_card", "check", "ach", "wire", "other"]).default("cash"),
   notes: z.string().max(2000).nullable().optional(),
+  /** When true, marks the item as tax-exempt (no HST/GST/PST). */
+  tax_exempt: z.boolean().optional(),
   /** Optional multi-project allocation. When provided, amounts must sum to amount_cents. */
   allocations: z.array(AllocationSchema).min(2).max(10).optional(),
 });
@@ -48,7 +50,7 @@ export async function POST(
     );
   }
 
-  const { name, amount_cents, merchant, purchase_date, classification, expense_type, labour_type, payment_method, notes, allocations } = parsed.data;
+  const { name, amount_cents, merchant, purchase_date, classification, expense_type, labour_type, payment_method, notes, tax_exempt, allocations } = parsed.data;
 
   // Validate allocations sum to total when provided
   if (allocations) {
@@ -140,6 +142,7 @@ export async function POST(
   const now = new Date().toISOString();
   const resolvedExpenseType = classification === "business" ? (expense_type ?? "material") : "material";
   const resolvedLabourType = expense_type === "labour" ? (labour_type ?? null) : null;
+  const resolvedTaxMethod = tax_exempt ? "exempt" : null;
 
   const itemRows = allocations
     ? allocations.map((alloc, i) => ({
@@ -159,6 +162,7 @@ export async function POST(
         classified_by: classification !== "unclassified" ? userId : null,
         project_id: alloc.project_id,
         notes: notes || null,
+        tax_calculation_method: resolvedTaxMethod,
       }))
     : [
         {
@@ -178,6 +182,7 @@ export async function POST(
           classified_by: classification !== "unclassified" ? userId : null,
           project_id: projectId,
           notes: notes || null,
+          tax_calculation_method: resolvedTaxMethod,
         },
       ];
 

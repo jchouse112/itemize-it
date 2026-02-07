@@ -45,6 +45,7 @@ export default function AddExpenseModal({
   const [expenseType, setExpenseType] = useState<ExpenseType>("material");
   const [labourType, setLabourType] = useState<LabourType>("employee");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [taxExempt, setTaxExempt] = useState(false);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export default function AddExpenseModal({
           classification,
           expense_type: classification === "business" ? expenseType : undefined,
           labour_type: classification === "business" && expenseType === "labour" ? labourType : null,
+          tax_exempt: classification === "business" && expenseType === "material" ? taxExempt : undefined,
           payment_method: paymentMethod,
           notes: notes.trim() || null,
           ...(useAllocations
@@ -229,7 +231,9 @@ export default function AddExpenseModal({
             )}
             {classification === "business" && expenseType === "material" && (
               <p className="text-[11px] text-concrete/60 mt-1.5 leading-relaxed">
-                Enter the total amount paid incl. taxes.
+                {taxExempt
+                  ? "Enter the total amount paid (no tax applied)."
+                  : "Enter the total amount paid incl. taxes."}
               </p>
             )}
           </div>
@@ -280,10 +284,29 @@ export default function AddExpenseModal({
               </label>
               <ExpenseTypeSelector
                 value={expenseType}
-                onChange={setExpenseType}
+                onChange={(v) => {
+                  setExpenseType(v);
+                  if (v !== "material") setTaxExempt(false);
+                }}
                 disabled={saving}
               />
             </div>
+          )}
+
+          {/* Tax Exempt (only for business + material) */}
+          {classification === "business" && expenseType === "material" && (
+            <label className="flex items-center gap-2.5 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={taxExempt}
+                onChange={(e) => setTaxExempt(e.target.checked)}
+                disabled={saving}
+                className="w-4 h-4 rounded border-edge-steel bg-asphalt text-safety-orange focus:ring-safety-orange/50 focus:ring-2 accent-safety-orange"
+              />
+              <span className="text-sm text-concrete group-hover:text-white transition-colors">
+                Tax exempt (no HST/GST/PST)
+              </span>
+            </label>
           )}
 
           {/* Labour Type (only when labour selected) */}

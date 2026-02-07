@@ -7,11 +7,11 @@ const ItemUpdateSchema = z.object({
   id: z.string().uuid(),
   classification: z.enum(["business", "personal", "unclassified"]).optional(),
   expense_type: z.enum(["material", "labour", "overhead"]).optional(),
-  labour_type: z.enum(["employee", "subcontractor"]).nullable().optional(),
   project_id: z.string().uuid().nullable().optional(),
   category: z.string().max(200).nullable().optional(),
   tax_category: z.string().max(200).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  tax_exempt: z.boolean().optional(),
 });
 
 const PatchItemsSchema = z.object({
@@ -96,14 +96,6 @@ export async function PATCH(
 
     if (item.expense_type !== undefined) {
       data.expense_type = item.expense_type;
-      // Clear labour_type when switching away from labour
-      if (item.expense_type !== "labour") {
-        data.labour_type = null;
-      }
-    }
-
-    if (item.labour_type !== undefined) {
-      data.labour_type = item.labour_type;
     }
 
     if (item.project_id !== undefined) {
@@ -120,6 +112,10 @@ export async function PATCH(
 
     if (item.notes !== undefined) {
       data.notes = item.notes;
+    }
+
+    if (item.tax_exempt !== undefined) {
+      data.tax_calculation_method = item.tax_exempt ? "exempt" : null;
     }
 
     if (Object.keys(data).length > 0) {

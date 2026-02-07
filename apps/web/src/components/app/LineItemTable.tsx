@@ -73,7 +73,7 @@ export default function LineItemTable({
   }, [toast]);
 
   const flushUpdate = useCallback(
-    async (itemId: string, field: string, value: string | null) => {
+    async (itemId: string, field: string, value: string | boolean | null) => {
       if (!receiptId) return;
       setSaving(itemId);
       try {
@@ -109,7 +109,7 @@ export default function LineItemTable({
     [receiptId, items, merchant, onItemsUpdated, onReceiptUpdated]
   );
 
-  function updateItem(itemId: string, field: string, value: string | null) {
+  function updateItem(itemId: string, field: string, value: string | boolean | null) {
     // Debounce rapid toggles on the same item+field
     const key = `${itemId}:${field}`;
     const existing = debounceTimers.current.get(key);
@@ -387,6 +387,32 @@ export default function LineItemTable({
                           <AlertTriangle className="w-3 h-3" />
                           {item.review_reasons?.join(", ")}
                         </div>
+                      )}
+                      {item.tax_calculation_method === "exempt" && (
+                        editable ? (
+                          <button
+                            type="button"
+                            onClick={() => updateItem(item.id, "tax_exempt", false)}
+                            disabled={isSaving}
+                            className="mt-0.5 text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                          >
+                            Tax Exempt
+                          </button>
+                        ) : (
+                          <span className="mt-0.5 inline-block text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Tax Exempt
+                          </span>
+                        )
+                      )}
+                      {editable && item.classification === "business" && item.expense_type === "material" && item.tax_calculation_method !== "exempt" && (
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.id, "tax_exempt", true)}
+                          disabled={isSaving}
+                          className="mt-0.5 text-[10px] tracking-wide uppercase px-1.5 py-0.5 rounded text-concrete/30 border border-transparent hover:text-amber-400/60 hover:border-amber-500/20 hover:bg-amber-500/5 transition-colors disabled:opacity-50"
+                        >
+                          + Tax Exempt
+                        </button>
                       )}
                     </div>
                   </div>
