@@ -390,7 +390,7 @@ export default function LineItemTable({
                       )}
                     </div>
                   </div>
-                  {editable && (
+                  {editable && item.warranty_lookup_status !== "not_eligible" && (
                     <button
                       type="button"
                       onClick={() => handleCheckWarranty(item)}
@@ -458,7 +458,7 @@ export default function LineItemTable({
                   </td>
                 )}
                 <td className="px-4 py-3 hidden lg:table-cell">
-                  {(() => {
+                  {item.warranty_lookup_status !== "not_eligible" && (() => {
                     const { Icon, className: iconClass } = getWarrantyIcon(
                       item.warranty_lookup_status,
                       isCheckingWarranty

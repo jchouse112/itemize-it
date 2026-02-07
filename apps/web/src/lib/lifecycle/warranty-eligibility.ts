@@ -14,6 +14,7 @@ interface WarrantyEligibilityResult {
     | "merchant_signal"
     | "high_value"
     | "consumable"
+    | "food_merchant"
     | "insufficient_signal";
 }
 
@@ -46,6 +47,7 @@ const DURABLE_KEYWORDS = [
 ];
 
 const CONSUMABLE_KEYWORDS = [
+  // Building materials
   "lumber",
   "plywood",
   "2x4",
@@ -62,9 +64,88 @@ const CONSUMABLE_KEYWORDS = [
   "fuel",
   "gas",
   "diesel",
+  // Food & beverage
+  "food",
   "meal",
   "snack",
   "coffee",
+  "poutine",
+  "burger",
+  "pizza",
+  "sandwich",
+  "salad",
+  "soup",
+  "fries",
+  "latte",
+  "espresso",
+  "tea",
+  "beer",
+  "wine",
+  "cocktail",
+  "appetizer",
+  "entree",
+  "dessert",
+  "lunch",
+  "dinner",
+  "breakfast",
+  "chicken",
+  "steak",
+  "sushi",
+  "taco",
+  "wrap",
+  "pasta",
+  "wings",
+  "nachos",
+  "smoothie",
+  "juice",
+  "soda",
+  "pop",
+  "drink",
+];
+
+/** Merchants clearly in the food / entertainment / hospitality space */
+const FOOD_MERCHANT_KEYWORDS = [
+  "restaurant",
+  "café",
+  "cafe",
+  "bistro",
+  "grill",
+  "bar",
+  "pub",
+  "kitchen",
+  "diner",
+  "eatery",
+  "bakery",
+  "pizzeria",
+  "sushi",
+  "starbucks",
+  "tim hortons",
+  "mcdonalds",
+  "mcdonald's",
+  "subway",
+  "a&w",
+  "wendy",
+  "burger king",
+  "popeyes",
+  "chick-fil-a",
+  "chipotle",
+  "panera",
+  "domino",
+  "pizza hut",
+  "taco bell",
+  "kfc",
+  "five guys",
+  "shake shack",
+  "dairy queen",
+  // Entertainment / sports venues
+  "arena",
+  "stadium",
+  "sports",
+  "entertainment",
+  "theatre",
+  "theater",
+  "cinema",
+  "concession",
 ];
 
 export function assessWarrantyEligibility(
@@ -78,6 +159,12 @@ export function assessWarrantyEligibility(
 
   if (CONSUMABLE_KEYWORDS.some((kw) => text.includes(kw))) {
     return { eligible: false, reason: "consumable" };
+  }
+
+  // Check merchant against food / entertainment venues BEFORE durable checks
+  // so a $200 dinner at Scotiabank Arena doesn't get flagged as "high_value"
+  if (merchant && FOOD_MERCHANT_KEYWORDS.some((kw) => merchant.includes(kw))) {
+    return { eligible: false, reason: "food_merchant" };
   }
 
   if (DURABLE_KEYWORDS.some((kw) => text.includes(kw))) {
