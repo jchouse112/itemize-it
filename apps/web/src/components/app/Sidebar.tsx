@@ -138,8 +138,8 @@ export default function Sidebar({ receiptsUsed, receiptsLimit }: SidebarProps) {
             Settings
           </Link>
 
-          {/* Bookkeeping section */}
-          <div className="pt-4 pb-2 px-3">
+          {/* Bookkeeping section — visually separated */}
+          <div className="pt-4 pb-2 px-3 mt-2 border-t border-edge-steel">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-concrete/40">
               Bookkeeping
             </p>
